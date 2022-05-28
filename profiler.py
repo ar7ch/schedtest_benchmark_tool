@@ -9,6 +9,7 @@ import re
 from dataclasses import dataclass, field
 
 
+
 def print_if_interactive(msg: str, flag=False):
     if __name__=='__main__' or flag:
         print(msg)
@@ -21,9 +22,17 @@ class CompletedRun:
     sched: bool = field(default=False, hash=True)
 
 
+rexp_rt = None
+rexp_states = None
+
+
 def profile(exec_name: str, stdin: str, trials=3, input_from_file=True) -> CompletedRun:
-    rexp_rt = re.compile(r'(^|.)*Elapsed time: (\d*\.\d*(e(\+|\-)\d*)*)(^|.)*', flags=re.MULTILINE)
-    rexp_states = re.compile(r'\D*(\d*) states generated(^|.)*')
+    global rexp_rt
+    global rexp_states
+    if rexp_rt is None:
+        rexp_rt = re.compile(r'Elapsed time: (\d*\.\d*(e(\+|\-)\d*)*).', flags=re.MULTILINE)
+    if rexp_states is None:
+        rexp_states = re.compile(r'(\d*) states generated.')
     avg = 0
     states = 0
     sched = True
@@ -34,17 +43,24 @@ def profile(exec_name: str, stdin: str, trials=3, input_from_file=True) -> Compl
             in_str = stdin_fd.readline().strip()
             while len(in_str) > 0:
                 inp += in_str + ' '
-                in_str = stdin_fd.readline().strip() 
+                in_str = stdin_fd.readline().strip()
     for i in range(trials):
+        match_rt = None
+        match_states = None
         p = subprocess.run([exec_name], input=inp, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        if 'NOT SCHEDULABLE' in str(p.stderr):
-            sched = False
         stdout = str(p.stdout)
-        match_rt = rexp_rt.search(stdout)
-        match_states = rexp_states.search(stdout)
+        for _line in stdout.split('\n'):
+            line = _line.strip()
+            if 'NOT SCHEDULABLE' in line:
+                sched = False
+                continue
+            if not match_rt:
+                match_rt = rexp_rt.match(line)
+            if not match_states:
+                match_states = rexp_states.match(line)
         if match_rt and match_states:
             states = int(match_states.group(1))
-            run_time = float(match_rt.group(2))
+            run_time = float(match_rt.group(1))
             print_if_interactive(f'{i}. rt={run_time}, states={states}')
             avg += run_time
         else:

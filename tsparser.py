@@ -9,12 +9,14 @@ import numpy as np
 from dataclasses import dataclass, field
 import profiler
 import enum
+import logging
 
 PROC_NUMBER = 2
 
 executables = ['../distrib/gfp_mod']
 
 flag = __name__=='__main__'
+
 
 @dataclass
 class Task:
@@ -144,21 +146,36 @@ def evaluate(test_set: TestSet, executable) -> EvaluatedTS:
     states = []
     #sched = []
     i = 0
+    total_ts = test_set.get_total_tasksets()
     for tasksys in test_set.tasksys_list:
         avg_rt = 0  # if we're given a task system with different tasksets but identical system parameters, we compute average value of all such runs
         avg_states = 0 # same with states
+        ### DEBUG
+        logger = logging.getLogger('tsparser')
+        ch = logging.StreamHandler()
+        ch.setLevel(logging.DEBUG)
+        if logger.hasHandlers():
+            logger.handlers.clear()
+        logger.addHandler(ch)
+        logger.setLevel(logging.DEBUG)
+        logger.propagate = False
+        __tic = time.perf_counter()
+        ###
         for taskset in tasksys.tasksets:
             inp = f'{tasksys.m} {tasksys.n}'
             for task in taskset:
                 for el in task.as_tuple():
                     inp += f' {el}'
+            ###
+            tic = time.perf_counter()
             completed_run = profiler.profile(executable, inp, trials=1, input_from_file=False)
-            profiler.print_if_interactive(f'test {i+1}/{test_set.get_total_tasksets()}: U={tasksys.util}, rt={completed_run.runtime} s, '
+            tac = time.perf_counter()
+            ###
+            profiler.print_if_interactive(f'test {i+1}/{total_ts}: U={tasksys.util}, rt={completed_run.runtime} s, '
                   f'{"SCHEDULABLE" if completed_run.sched else "NOT SCHEDULABLE"}, '
                   f'{completed_run.states} states', flag=__name__=='__main__')
+            logger.debug(f'running exec takes {tac-tic}')
             i += 1
-            avg_states += completed_run.states
-            avg_rt += completed_run.runtime
         avg_states /= len(tasksys.tasksets)
         avg_rt /= len(tasksys.tasksets)
         states.append(avg_states)
