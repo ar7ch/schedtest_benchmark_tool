@@ -1,20 +1,17 @@
 #!/usr/bin/python3
 
 from __future__ import annotations
-import typing
 import os
 import sys
 import subprocess
 import re
-import time
-import logging
 from dataclasses import dataclass, field
-
 
 
 def print_if_interactive(msg: str, flag=False):
     if __name__=='__main__' or flag:
         print(msg)
+
 
 @dataclass
 class CompletedRun:
