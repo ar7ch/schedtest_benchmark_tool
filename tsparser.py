@@ -1,22 +1,23 @@
 #!/usr/bin/python3
 
-import typing
+from __future__ import annotations
+
+import io
+from typing import TextIO, Dict, List
 import sys
 import os
-import matplotlib.pyplot as plt
 import time
-import numpy as np
 from dataclasses import dataclass, field
 import profiler
 import enum
-import datetime
-import logging
 
 PROC_NUMBER = 2
 
-executables = ['../distrib/gfp_orig', '../distrib/gfp_mod']
-
+executables = ['gfp_mod']
 interactive_flag = __name__ == '__main__'
+
+
+
 
 @dataclass
 class Task:
@@ -146,6 +147,66 @@ def parse_taskset_file(input_file_name: str) -> TestSet:
             cur_tasksys.tasksets.append(taskset)
     return TestSet(list(tasksys_dict.values()), input_file_name)
 
+"""
+class OutputRecord:
+    instance: OutputRecordInstance = None
+
+    @classmethod
+    def get_instance(cls, input_file_name=None, write_to_file=True):
+        if input_file_name is not None and cls.instance is None:
+            cls.instance = OutputRecordInstance(input_file_name, write_to_file)
+            return cls.instance
+        elif input_file_name is None and cls.instance is not None:
+            return cls.instance
+        else:
+            raise ValueError('Singleton is already initialized')
+
+    @classmethod
+    def replace_instance(cls, input_file_name, write_to_file=True):
+        cls.instance = OutputRecordInstance(input_file_name, write_to_file)
+"""
+
+
+class OutputRecordSingleton(type):
+    def __call__(cls, *args, **kwargs):
+        try:
+            return cls.__instance
+        except AttributeError:
+            cls.__instance = super(OutputRecordSingleton, cls).__call__(*args, **kwargs)
+            return cls.__instance
+
+@dataclass
+class OutputRecord(metaclass=OutputRecordSingleton):
+    output_dir: str = field(default=None)
+    output_file_fd: TextIO = field(default=None)
+
+    def __init__(self, input_file_name=None, write_to_file=True):
+        if write_to_file:
+            import datetime
+            date = datetime.datetime.now()
+            date_str = str(date.isoformat(timespec='seconds'))
+            input_file_basename = os.path.basename(input_file_name)
+            self.output_dir = os.path.join(os.getcwd(), f'run_{date_str}_{os.path.splitext(input_file_basename)[0]}')
+            try:
+                os.mkdir(self.output_dir)
+            except FileExistsError:
+                pass
+            self.output_file_fd = open(self.join_filename('run_dump.txt'), 'a+')
+            print(f"# dumping file {input_file_basename} on {date_str}", file=self.output_file_fd)
+
+    def join_filename(self, filename: str) -> str:
+        return os.path.join(self.output_dir, filename)
+
+    def write(self, msg: str) -> None:
+        profiler.print_if_interactive(msg, flag=interactive_flag)
+        if self.output_file_fd is not None:
+            print(msg, file=self.output_file_fd)
+
+    def __del__(self):
+        if self.output_file_fd is not None:
+            self.output_file_fd.close()
+
+
 
 def evaluate(test_set: TestSet, executable) -> EvaluatedTS:
     """
@@ -159,40 +220,38 @@ def evaluate(test_set: TestSet, executable) -> EvaluatedTS:
     sched_ratio = []
     i = 0
     total_ts = test_set.get_total_tasksets_num()
-    date = datetime.datetime.now()
-    date_str = str(date.isoformat(timespec='seconds'))
-    base_fname = os.path.basename(test_set.input_file_name)
-    with open(f"dump_{date_str}_{base_fname}", 'a+') as dump_file:
-        print(f"# dumping file {base_fname} on {date_str}", file=dump_file)
-        for tasksys in test_set.tasksys_list:
-            avg_rt = 0  # if we're given a task system with different tasksets but identical system parameters, we compute average value of all such runs
-            avg_states = 0 # same with states
-            sched_num = 0
-            for taskset in tasksys.tasksets:
-                inp = f'{tasksys.m} {tasksys.n}'
-                for task in taskset:
-                    for el in task.as_tuple():
-                        inp += f' {el}'
-                completed_run = profiler.profile(executable, inp, trials=1, input_from_file=False)
-                profiler.print_if_interactive(f'test {i+1}/{total_ts}: n={tasksys.n}, n_heavy={tasksys.n_heavy}, U={tasksys.util}, D_ratio={tasksys.d_ratio}, PD_ratio={tasksys.pd_ratio} rt={completed_run.runtime} s, '
-                      f'{"SCHEDULABLE" if completed_run.sched else "NOT_SCHEDULABLE"}, '
-                      f'{completed_run.states} states', flag=__name__=='__main__', dump_fd=dump_file)
-                if completed_run.sched:
-                    sched_num += 1
-                avg_rt += completed_run.runtime
-                avg_states += completed_run.states
-                i += 1
-            sched_num /= len(tasksys.tasksets)
-            sched_num *= 100
-            avg_states /= len(tasksys.tasksets)
-            avg_rt /= len(tasksys.tasksets)
-            states.append(avg_states)
-            runtimes.append(avg_rt)
-            sched_ratio.append(sched_num)
+    OutputRecord(test_set.input_file_name)
+    for tasksys in test_set.tasksys_list:
+        avg_rt = 0  # if we're given a task system with different tasksets but identical system parameters, we compute average value of all such runs
+        avg_states = 0 # same with states
+        sched_num = 0
+        for taskset in tasksys.tasksets:
+            inp = f'{tasksys.m} {tasksys.n}'
+            for task in taskset:
+                for el in task.as_tuple():
+                    inp += f' {el}'
+            completed_run = profiler.profile(os.path.abspath(executable), inp, trials=1, input_from_file=False)
+            OutputRecord().write(f'test {i + 1}/{total_ts}: n={tasksys.n}, n_heavy={tasksys.n_heavy}, U={tasksys.util}, '
+                        f'D_ratio={tasksys.d_ratio}, PD_ratio={tasksys.pd_ratio} rt={completed_run.runtime} s, '
+                        f'{"SCHEDULABLE" if completed_run.sched else "NOT_SCHEDULABLE"}, '
+                        f'{completed_run.states} states')
+            if completed_run.sched:
+                sched_num += 1
+            avg_rt += completed_run.runtime
+            avg_states += completed_run.states
+            i += 1
+        sched_num /= len(tasksys.tasksets)
+        sched_num *= 100
+        avg_states /= len(tasksys.tasksets)
+        avg_rt /= len(tasksys.tasksets)
+        states.append(avg_states)
+        runtimes.append(avg_rt)
+        sched_ratio.append(sched_num)
     return EvaluatedTS(runtimes, states, sched_ratio)
 
 
-def plot_results(test_set: TestSet, evaluations_by_exec: list[EvaluatedTS], plot_states=False, plot_runtime=False, plot_sched=False, print_filename=True):
+def plot_results(test_set: TestSet, evaluations_by_exec: List[EvaluatedTS], plot_states=False, plot_runtime=False, plot_sched=False, print_filename=True):
+    import matplotlib.pyplot as plt
     COLORS = ['blue', 'green', 'orange', 'red', 'purple', 'brown', 'pink']
     x_values = test_set.get_varying_parameters()
 
@@ -209,7 +268,10 @@ def plot_results(test_set: TestSet, evaluations_by_exec: list[EvaluatedTS], plot
             plt.plot(x_values, y_values, '--', label=os.path.basename(executables[i]), color=cont_color, alpha=0.8)
             plt.scatter(x_values, y_values, color=point_color, alpha=0.7)
         plt.legend()
-        plt.savefig(f'{fig_num}.png')
+        figname = y_str.replace(',', '')
+        figname = figname.replace(' ', '_')
+        figname += '.png'
+        plt.savefig(OutputRecord().join_filename(figname))
 
     fig_num = 0
     if plot_states:
@@ -221,9 +283,8 @@ def plot_results(test_set: TestSet, evaluations_by_exec: list[EvaluatedTS], plot
     if plot_sched:
         plot_res([ev.sched_ratio for ev in evaluations_by_exec], fig_num, 'share of schedulable tasks, %')
         fig_num += 1
-    plt.draw()
-    if interactive_flag:
-         input('press ENTER to exit')
+    plt.show()
+
 
 
 def main():

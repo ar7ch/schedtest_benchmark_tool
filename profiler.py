@@ -12,12 +12,9 @@ from dataclasses import dataclass, field
 
 
 
-def print_if_interactive(msg: str, flag=False, dump_fd=None):
+def print_if_interactive(msg: str, flag=False):
     if __name__=='__main__' or flag:
         print(msg)
-        if dump_fd is not None:
-            print(msg, file=dump_fd)
-
 
 @dataclass
 class CompletedRun:
