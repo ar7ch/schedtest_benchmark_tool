@@ -6,13 +6,17 @@ import os
 import sys
 import subprocess
 import re
+import time
+import logging
 from dataclasses import dataclass, field
 
 
 
-def print_if_interactive(msg: str, flag=False):
+def print_if_interactive(msg: str, flag=False, dump_fd=None):
     if __name__=='__main__' or flag:
         print(msg)
+        if dump_fd is not None:
+            print(msg, file=dump_fd)
 
 
 @dataclass
@@ -47,7 +51,21 @@ def profile(exec_name: str, stdin: str, trials=3, input_from_file=True) -> Compl
     for i in range(trials):
         match_rt = None
         match_states = None
-        p = subprocess.run([exec_name], input=inp, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        ###tic = time.perf_counter()
+        p = subprocess.run([exec_name], input=inp, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=3600)
+        """
+        ### DEBUG
+        logger = logging.getLogger(__name__)
+        ch = logging.StreamHandler()
+        ch.setLevel(logging.DEBUG)
+        if logger.hasHandlers():
+            logger.handlers.clear()
+        logger.addHandler(ch)
+        logger.setLevel(logging.DEBUG)
+        logger.propagate = False
+        tac = time.perf_counter()
+        ###
+        """
         stdout = str(p.stdout)
         for _line in stdout.split('\n'):
             line = _line.strip()
@@ -62,6 +80,7 @@ def profile(exec_name: str, stdin: str, trials=3, input_from_file=True) -> Compl
             states = int(match_states.group(1))
             run_time = float(match_rt.group(1))
             print_if_interactive(f'{i}. rt={run_time}, states={states}')
+            #logger.debug(f'running exec takes {tac - tic}')
             avg += run_time
         else:
             raise ValueError(f'Unable to fetch {"runtime" if not match_rt else ""}{"states num" if not match_states else ""} from{exec_name}: {stdout}, input: {inp}, aborting')

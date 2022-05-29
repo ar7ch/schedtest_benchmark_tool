@@ -9,14 +9,14 @@ import numpy as np
 from dataclasses import dataclass, field
 import profiler
 import enum
+import datetime
 import logging
 
 PROC_NUMBER = 2
 
-executables = ['../distrib/gfp_mod']
+executables = ['../distrib/gfp_orig', '../distrib/gfp_mod']
 
-flag = __name__=='__main__'
-
+interactive_flag = __name__ == '__main__'
 
 @dataclass
 class Task:
@@ -41,17 +41,24 @@ class TaskSystem:
     def sysparam_tuple(self) -> tuple[int, int, float, float, float]:
         return self.n, self.n_heavy, self.util, self.d_ratio, self.pd_ratio
 
+
 @enum.unique
 class VaryingParameters(enum.IntEnum):
-    VARYING_N = 0
-    VARYING_NHEAVY = 1
-    VARYING_UTIL = 2
-    VARYING_DRATIO = 3
+    N = 0
+    N_heavy = 1
+    Utilization = 2
+    D_ratio = 3
+
+    def __str__(self):
+        return self.name
+
 
 @dataclass
 class EvaluatedTS:
     runtimes: list[float] = field(default=None)
     states: list[int] = field(default=None)
+    sched_ratio: list[float] = field(default=None)
+
 
 @dataclass
 class TestSet:
@@ -61,17 +68,19 @@ class TestSet:
     """
     tasksys_list: list[TaskSystem] = field(default_factory=list)
     varying_param: VaryingParameters = field(default=None)
+    input_file_name: str = field(default=None)
 
-    def __init__(self, tasksys_list: list[TaskSystem]):
+    def __init__(self, tasksys_list: list[TaskSystem], input_file_name: str):
         self.tasksys_list = tasksys_list
+        self.input_file_name = input_file_name
         if len(tasksys_list) > 0:
             self.detect_varying_parameter()
         if self.varying_param is not None:
-            profiler.print_if_interactive(f'Autodetect varying parameter: {str(self.varying_param)}', flag=flag)
+            profiler.print_if_interactive(f'Autodetect varying parameter: {str(self.varying_param)}', flag=interactive_flag)
         else:
             raise ValueError('Failed to autodetect varying parameter')
 
-    def get_total_tasksets(self) -> int:
+    def get_total_tasksets_num(self) -> int:
         ans = 0
         for tasksys in self.tasksys_list:
             ans += len(tasksys.tasksets)
@@ -88,13 +97,13 @@ class TestSet:
                 prev_tup = tsys.sysparam_tuple()
                 if tup != prev_tup:
                     if tsys.n != prev_tsys.n:
-                        self.varying_param = VaryingParameters.VARYING_N
+                        self.varying_param = VaryingParameters.N
                     elif tsys.n_heavy != prev_tsys.n_heavy:
-                        self.varying_param = VaryingParameters.VARYING_NHEAVY
+                        self.varying_param = VaryingParameters.N_heavy
                     elif tsys.util != prev_tsys.util:
-                        self.varying_param = VaryingParameters.VARYING_UTIL
+                        self.varying_param = VaryingParameters.Utilization
                     elif tsys.d_ratio != prev_tsys.d_ratio:
-                        self.varying_param = VaryingParameters.VARYING_DRATIO
+                        self.varying_param = VaryingParameters.D_ratio
                     else:
                         assert False
         return self.varying_param
@@ -109,8 +118,12 @@ def parse_taskset_file(input_file_name: str) -> TestSet:
     testset_arr = []
     tasksys_dict = dict()
     with open(os.path.abspath(input_file_name), 'r') as inp_file:
-        in_str = inp_file.readline()
-        while len(in_str) > 0:
+        while True:
+            in_str = inp_file.readline()
+            if len(in_str) <= 0:
+                break
+            elif in_str[0] == '#':
+                continue
             vals = []
             # parse numerical tab-delimited values into a list of ints (and floats)
             for v in in_str.split('\t'):
@@ -131,8 +144,7 @@ def parse_taskset_file(input_file_name: str) -> TestSet:
                 taskset.append(task)
             assert len(taskset) == cur_tasksys.n
             cur_tasksys.tasksets.append(taskset)
-            in_str = inp_file.readline()
-    return TestSet(list(tasksys_dict.values()))
+    return TestSet(list(tasksys_dict.values()), input_file_name)
 
 
 def evaluate(test_set: TestSet, executable) -> EvaluatedTS:
@@ -144,61 +156,60 @@ def evaluate(test_set: TestSet, executable) -> EvaluatedTS:
     """
     runtimes = []
     states = []
-    #sched = []
+    sched_ratio = []
     i = 0
-    total_ts = test_set.get_total_tasksets()
-    for tasksys in test_set.tasksys_list:
-        avg_rt = 0  # if we're given a task system with different tasksets but identical system parameters, we compute average value of all such runs
-        avg_states = 0 # same with states
-        ### DEBUG
-        logger = logging.getLogger('tsparser')
-        ch = logging.StreamHandler()
-        ch.setLevel(logging.DEBUG)
-        if logger.hasHandlers():
-            logger.handlers.clear()
-        logger.addHandler(ch)
-        logger.setLevel(logging.DEBUG)
-        logger.propagate = False
-        __tic = time.perf_counter()
-        ###
-        for taskset in tasksys.tasksets:
-            inp = f'{tasksys.m} {tasksys.n}'
-            for task in taskset:
-                for el in task.as_tuple():
-                    inp += f' {el}'
-            ###
-            tic = time.perf_counter()
-            completed_run = profiler.profile(executable, inp, trials=1, input_from_file=False)
-            tac = time.perf_counter()
-            ###
-            profiler.print_if_interactive(f'test {i+1}/{total_ts}: U={tasksys.util}, rt={completed_run.runtime} s, '
-                  f'{"SCHEDULABLE" if completed_run.sched else "NOT SCHEDULABLE"}, '
-                  f'{completed_run.states} states', flag=__name__=='__main__')
-            logger.debug(f'running exec takes {tac-tic}')
-            i += 1
-        avg_states /= len(tasksys.tasksets)
-        avg_rt /= len(tasksys.tasksets)
-        states.append(avg_states)
-        runtimes.append(avg_rt)
-    return EvaluatedTS(runtimes, states)
+    total_ts = test_set.get_total_tasksets_num()
+    date = datetime.datetime.now()
+    date_str = str(date.isoformat(timespec='seconds'))
+    base_fname = os.path.basename(test_set.input_file_name)
+    with open(f"dump_{date_str}_{base_fname}", 'a+') as dump_file:
+        print(f"# dumping file {base_fname} on {date_str}", file=dump_file)
+        for tasksys in test_set.tasksys_list:
+            avg_rt = 0  # if we're given a task system with different tasksets but identical system parameters, we compute average value of all such runs
+            avg_states = 0 # same with states
+            sched_num = 0
+            for taskset in tasksys.tasksets:
+                inp = f'{tasksys.m} {tasksys.n}'
+                for task in taskset:
+                    for el in task.as_tuple():
+                        inp += f' {el}'
+                completed_run = profiler.profile(executable, inp, trials=1, input_from_file=False)
+                profiler.print_if_interactive(f'test {i+1}/{total_ts}: n={tasksys.n}, n_heavy={tasksys.n_heavy}, U={tasksys.util}, D_ratio={tasksys.d_ratio}, PD_ratio={tasksys.pd_ratio} rt={completed_run.runtime} s, '
+                      f'{"SCHEDULABLE" if completed_run.sched else "NOT_SCHEDULABLE"}, '
+                      f'{completed_run.states} states', flag=__name__=='__main__', dump_fd=dump_file)
+                if completed_run.sched:
+                    sched_num += 1
+                avg_rt += completed_run.runtime
+                avg_states += completed_run.states
+                i += 1
+            sched_num /= len(tasksys.tasksets)
+            sched_num *= 100
+            avg_states /= len(tasksys.tasksets)
+            avg_rt /= len(tasksys.tasksets)
+            states.append(avg_states)
+            runtimes.append(avg_rt)
+            sched_ratio.append(sched_num)
+    return EvaluatedTS(runtimes, states, sched_ratio)
 
 
-def plot_results(test_set: TestSet, evaluations_by_exec: list[EvaluatedTS], plot_states=False, plot_runtime=False, plot_sched=False):
-    COLORS = ['blue', 'orange', 'green', 'red', 'purple', 'brown', 'pink']
+def plot_results(test_set: TestSet, evaluations_by_exec: list[EvaluatedTS], plot_states=False, plot_runtime=False, plot_sched=False, print_filename=True):
+    COLORS = ['blue', 'green', 'orange', 'red', 'purple', 'brown', 'pink']
     x_values = test_set.get_varying_parameters()
 
     def plot_res(y_values_list: list, fig_num: int, y_str: str):
         plt.figure(fig_num)
         plt.grid(True)
-        plt.title('comparison of different implementations')
+        fname_str = '' if not print_filename else f'File {os.path.basename(test_set.input_file_name)}'
+        plt.title(f'Comparison of exact test implementations\n{fname_str}')
         plt.xlabel(f'{str(test_set.varying_param)}')
         plt.ylabel(y_str)
         for i, y_values in enumerate(y_values_list):
             cont_color = COLORS[i % len(COLORS)]
             point_color = cont_color
-            plt.plot(x_values, y_values, '--', label=os.path.basename(executables[i]), color=cont_color)
-            plt.scatter(x_values, y_values, color=point_color)
+            plt.plot(x_values, y_values, '--', label=os.path.basename(executables[i]), color=cont_color, alpha=0.8)
+            plt.scatter(x_values, y_values, color=point_color, alpha=0.7)
         plt.legend()
+        plt.savefig(f'{fig_num}.png')
 
     fig_num = 0
     if plot_states:
@@ -207,12 +218,18 @@ def plot_results(test_set: TestSet, evaluations_by_exec: list[EvaluatedTS], plot
     if plot_runtime:
         plot_res([ev.runtimes for ev in evaluations_by_exec], fig_num, 'runtime, seconds')
         fig_num += 1
-    plt.show()
+    if plot_sched:
+        plot_res([ev.sched_ratio for ev in evaluations_by_exec], fig_num, 'share of schedulable tasks, %')
+        fig_num += 1
+    plt.draw()
+    if interactive_flag:
+         input('press ENTER to exit')
 
 
 def main():
     assert (len(sys.argv) == 2)
-    test_set: TestSet = parse_taskset_file(sys.argv[1])
+    input_filename = os.path.abspath(sys.argv[1])
+    test_set: TestSet = parse_taskset_file(input_filename)
     main_tic = time.perf_counter()
     evaluations_by_exec = []
     time_meas = []
@@ -229,11 +246,8 @@ def main():
     main_diff = main_tac - main_tic
     print(f'Experiment completed in {main_diff:0.4f} s')
     print(tuple(time_meas))
-    plot_results(test_set, evaluations_by_exec, plot_states=True, plot_runtime=True)
+    plot_results(test_set, evaluations_by_exec, plot_states=True, plot_runtime=True, plot_sched=True, print_filename=True)
 
 
 if __name__ == '__main__':
     main()
-            
-
-        
