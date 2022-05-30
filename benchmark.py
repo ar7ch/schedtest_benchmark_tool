@@ -73,7 +73,7 @@ class OutputRecord(metaclass=OutputRecordSingleton):
                 os.mkdir(self.output_dir)
             except FileExistsError:
                 pass
-            self.output_file_fd = open(self.join_filename('run_dump.txt'), 'a+')
+            self.output_file_fd = open(self.join_filename('log.txt'), 'a+')
             print(f"# dumping file {input_file_basename} on {date_str}", file=self.output_file_fd)
 
     def join_filename(self, filename: str) -> str:
@@ -84,7 +84,7 @@ class OutputRecord(metaclass=OutputRecordSingleton):
         if self.output_file_fd is not None:
             print(msg, file=self.output_file_fd)
 
-    def cleanup_on_error(self):
+    def cleanup_output_dir(self):
         from shutil import rmtree
         rmtree(self.output_dir)
 
@@ -119,7 +119,11 @@ def evaluate(test_set: tsparser.TestSet, executable) -> EvalResults:
             for task in taskset:
                 for el in task.as_tuple():
                     inp += f' {el}'
-            completed_run = profiler.profile(os.path.abspath(executable), inp, trials=1, input_from_file=False)
+            try:
+                completed_run = profiler.profile(os.path.abspath(executable), inp, trials=1, input_from_file=False)
+            except ValueError as err:
+                OutputRecord().write(f'Error running {os.path.basename(executable)}: {str(err)}, probably out of memory or the executable has wrong output format. Skipping')
+                continue
             ets.tasksets_runs.append(completed_run)
             OutputRecord().write(f'test {i + 1}/{total_ts}: n={tasksys.n}, n_heavy={tasksys.n_heavy}, U={tasksys.util}, '
                                  f'D_ratio={tasksys.d_ratio}, PD_ratio={tasksys.pd_ratio} rt={completed_run.runtime} s, '
@@ -207,7 +211,7 @@ def plot_results(test_set: tsparser.TestSet, results_list: List[EvalResults], pl
         plot_res([res.get_sched_ratio_values() for res in results_list], fig_num, 'share of schedulable tasks, %', [os.path.basename(res.label) for res in results_list])
         fig_num += 1
     green_diamond = dict(markerfacecolor='g', marker='D')
-    data = [res.get_all_runtimes() for res in results_list]
+    data = [res.get_all_runtimes()[::-1] for res in results_list]
     for i in range(len(data)-1):
         plt.figure(fig_num)
         plt.grid(True)
@@ -215,6 +219,7 @@ def plot_results(test_set: tsparser.TestSet, results_list: List[EvalResults], pl
         plt.xlabel(f'{str(test_set.varying_param)}')
         plt.ylabel('performance gain, times')
         plt.boxplot((data[i] / data[-1]).T, flierprops=green_diamond)
+        plt.xticks([i for i in range(1, len(x_values)+1)], x_values[::-1])
         fig_num += 1
     plt.savefig(OutputRecord().join_filename('boxplot_rt.png'))
     if open_plots:
@@ -224,21 +229,24 @@ def plot_results(test_set: tsparser.TestSet, results_list: List[EvalResults], pl
 
 def main():
     input_filename, executables_list, open_plots, dump_path, output_dir = parse()
+    is_dump = dump_path is not None
     try:
         OutputRecord(input_filename, output_dir)
         test_set: tsparser.TestSet = tsparser.parse_taskset_file(input_filename)
-        if dump_path is None:
-            evaluations_by_exec: List[EvalResults] = benchmark_executables(test_set, executables_list)
-            OutputRecord().dump_results(evaluations_by_exec)
-        else:
+        if is_dump:
             OutputRecord().write(f"Restoring dump {os.path.basename(dump_path)}")
             evaluations_by_exec = OutputRecord().restore_results(dump_path)
-        plot_results(test_set, evaluations_by_exec, plot_states=True, plot_runtime=True, plot_sched=True,
-                     print_filename=True, open_plots=open_plots)
-        OutputRecord().write(f'Output files saved to {OutputRecord().output_dir}')
+        else:
+            evaluations_by_exec: List[EvalResults] = benchmark_executables(test_set, executables_list)
+            OutputRecord().dump_results(evaluations_by_exec)
+        plot_results(test_set, evaluations_by_exec, plot_states=True, plot_runtime=True, plot_sched=True, print_filename=True, open_plots=open_plots)
+        if is_dump:
+            OutputRecord().cleanup_output_dir()
+        else:
+            OutputRecord().write(f'Output files saved to {OutputRecord().output_dir}')
     except KeyboardInterrupt:
         OutputRecord().write(f"Aborting, cleaning up the directory {OutputRecord().output_dir}")
-        OutputRecord().cleanup_on_error()
+        OutputRecord().cleanup_output_dir()
     except FileNotFoundError as err:
         OutputRecord().write('Failed to open file:' + str(err))
 

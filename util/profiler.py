@@ -77,7 +77,10 @@ def profile(exec_name: str, stdin: str, trials=3, input_from_file=True) -> Compl
             #logger.debug(f'running exec takes {tac - tic}')
             avg += run_time
         else:
-            raise ValueError(f'Unable to fetch {"runtime" if not match_rt else ""}{"states num" if not match_states else ""} from{exec_name}: {stdout}, input: {inp}, aborting')
+            failure_list = []
+            if not match_rt: failure_list.append('runtime')
+            if not match_states: failure_list.append('number of states')
+            raise ValueError(f'Unable to fetch {str(failure_list)} from {exec_name}: {stdout}, input: {inp}')
 
     avg = avg / trials
     s_msg = 'SCHEDULABLE'
