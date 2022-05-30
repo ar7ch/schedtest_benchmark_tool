@@ -5,7 +5,10 @@ from typing import List, TextIO
 import argparse
 import time
 import os
+import numpy as np
 from dataclasses import dataclass, field
+import pickle
+
 from util import tsparser, profiler
 import util
 
@@ -24,6 +27,9 @@ class EvalResults:
     def get_sched_ratio_values(self):
         return [e.sched_ratio for e in self.evals_list]
 
+    def get_all_runtimes(self):
+        return np.array([e.get_tasksys_runtimes() for e in self.evals_list])
+
 
 @dataclass
 class EvaluatedTaskSystem:
@@ -31,6 +37,12 @@ class EvaluatedTaskSystem:
     avg_rt: float = field(default=0)
     avg_states: float = field(default=0)
     sched_ratio: float = field(default=0)
+
+    def get_tasksys_runtimes(self):
+        return np.array([tsr.runtime for tsr in self.tasksets_runs])
+
+    def get_tasksys_states(self) -> List[int]:
+        return [tsr.states for tsr in self.tasksets_runs]
 
 
 class OutputRecordSingleton(type):
@@ -47,13 +59,16 @@ class OutputRecord(metaclass=OutputRecordSingleton):
     output_dir: str = field(default=None)
     output_file_fd: TextIO = field(default=None)
 
-    def __init__(self, input_file_name=None, write_to_file=True):
+    def __init__(self, input_file_name=None, _output_dir: str=None, write_to_file=True):
         if write_to_file:
             import datetime
             date = datetime.datetime.now()
             date_str = str(date.isoformat(timespec='seconds'))
             input_file_basename = os.path.basename(input_file_name)
-            self.output_dir = os.path.join(os.getcwd(), f'run_{date_str}_{os.path.splitext(input_file_basename)[0]}')
+            dirname = f'run_{date_str}_{os.path.splitext(input_file_basename)[0]}'
+            if _output_dir is not None:
+                dirname = os.path.basename(_output_dir)
+            self.output_dir = os.path.join(os.getcwd(), dirname)
             try:
                 os.mkdir(self.output_dir)
             except FileExistsError:
@@ -69,9 +84,22 @@ class OutputRecord(metaclass=OutputRecordSingleton):
         if self.output_file_fd is not None:
             print(msg, file=self.output_file_fd)
 
+    def cleanup_on_error(self):
+        from shutil import rmtree
+        rmtree(self.output_dir)
+
     def __del__(self):
         if self.output_file_fd is not None:
             self.output_file_fd.close()
+
+    def dump_results(self, obj: list[EvalResults]):
+        with open(self.join_filename('dump.bin'), 'w+b') as dump_fd:
+            pickle.dump(obj, dump_fd)
+
+    def restore_results(self, path: str):
+        with open(os.path.abspath(path), 'rb') as load_fd:
+            loaded_obj = pickle.load(load_fd)
+        return loaded_obj
 
 
 def evaluate(test_set: tsparser.TestSet, executable) -> EvalResults:
@@ -84,7 +112,6 @@ def evaluate(test_set: tsparser.TestSet, executable) -> EvalResults:
     results = EvalResults()
     i = 0
     total_ts = test_set.get_total_tasksets_num()
-    OutputRecord(test_set.input_file_name)
     for tasksys in test_set.tasksys_list:
         ets = EvaluatedTaskSystem()
         for taskset in tasksys.tasksets:
@@ -116,11 +143,13 @@ def parse():
     parser.add_argument("taskset_file", help="file with task sets")
     parser.add_argument("executables_list", help="comma-separated list with executables (relative and absolute paths supported), e.g.: /bin/ex1,../ex2,./ex3")
     parser.add_argument("--noplot", help="don't open windows with plots", action="store_true")
+    parser.add_argument("-d", "--dump",  help="path to presaved dump", type=str)
+    parser.add_argument("-o", "--output-dir", help="specify custom name for the output directory", type=str)
     args = parser.parse_args()
     open_plots = True
     if args.noplot:
         open_plots = False
-    return args.taskset_file, args.executables_list.split(','), open_plots
+    return args.taskset_file, args.executables_list.split(','), open_plots, args.dump, args.output_dir
 
 
 def benchmark_executables(test_set: tsparser.TestSet, executables_list: List[str]) -> List[EvalResults]:
@@ -128,7 +157,7 @@ def benchmark_executables(test_set: tsparser.TestSet, executables_list: List[str
     time_meas = []
     main_tic = time.perf_counter()
     for i, _exec in enumerate(executables_list):
-        print(f'({i + 1}/{len(executables_list)}) Evaluating {os.path.basename(_exec)}')
+        OutputRecord().write(f'({i + 1}/{len(executables_list)}) Evaluating {os.path.basename(_exec)}')
         tic = time.perf_counter()
         res: EvalResults = evaluate(test_set, _exec)
         res.label = _exec
@@ -136,11 +165,11 @@ def benchmark_executables(test_set: tsparser.TestSet, executables_list: List[str
         tac = time.perf_counter()
         diff = tac - tic
         time_meas.append(diff)
-        print(f'({i + 1}/{len(executables_list)}) Done (completed in {diff:0.4f} s)')
+        OutputRecord().write(f'({i + 1}/{len(executables_list)}) Done (completed in {diff:0.4f} s)')
     main_tac = time.perf_counter()
     main_diff = main_tac - main_tic
-    print(f'Experiment completed in {main_diff:0.4f} s')
-    print(tuple(time_meas))
+    OutputRecord().write(f'Experiment completed in {main_diff:0.4f} s')
+    OutputRecord().write(tuple(time_meas))
     return results_executables
 
 
@@ -177,17 +206,41 @@ def plot_results(test_set: tsparser.TestSet, results_list: List[EvalResults], pl
     if plot_sched:
         plot_res([res.get_sched_ratio_values() for res in results_list], fig_num, 'share of schedulable tasks, %', [os.path.basename(res.label) for res in results_list])
         fig_num += 1
+    green_diamond = dict(markerfacecolor='g', marker='D')
+    data = [res.get_all_runtimes() for res in results_list]
+    for i in range(len(data)-1):
+        plt.figure(fig_num)
+        plt.grid(True)
+        plt.title(f'Comparison of exact test implementations\n')
+        plt.xlabel(f'{str(test_set.varying_param)}')
+        plt.ylabel('performance gain, times')
+        plt.boxplot((data[i] / data[-1]).T, flierprops=green_diamond)
+        fig_num += 1
+    plt.savefig(OutputRecord().join_filename('boxplot_rt.png'))
     if open_plots:
         plt.show(block=False)
         input('Press enter to exit')
 
 
 def main():
-    input_filename, executables_list, open_plots = parse()
-    test_set: tsparser.TestSet = tsparser.parse_taskset_file(input_filename)
-    evaluations_by_exec: List[EvalResults] = benchmark_executables(test_set, executables_list)
-    plot_results(test_set, evaluations_by_exec, plot_states=True, plot_runtime=True, plot_sched=True, print_filename=True, open_plots=open_plots)
-
+    input_filename, executables_list, open_plots, dump_path, output_dir = parse()
+    try:
+        OutputRecord(input_filename, output_dir)
+        test_set: tsparser.TestSet = tsparser.parse_taskset_file(input_filename)
+        if dump_path is None:
+            evaluations_by_exec: List[EvalResults] = benchmark_executables(test_set, executables_list)
+            OutputRecord().dump_results(evaluations_by_exec)
+        else:
+            OutputRecord().write(f"Restoring dump {os.path.basename(dump_path)}")
+            evaluations_by_exec = OutputRecord().restore_results(dump_path)
+        plot_results(test_set, evaluations_by_exec, plot_states=True, plot_runtime=True, plot_sched=True,
+                     print_filename=True, open_plots=open_plots)
+        OutputRecord().write(f'Output files saved to {OutputRecord().output_dir}')
+    except KeyboardInterrupt:
+        OutputRecord().write(f"Aborting, cleaning up the directory {OutputRecord().output_dir}")
+        OutputRecord().cleanup_on_error()
+    except FileNotFoundError as err:
+        OutputRecord().write('Failed to open file:' + str(err))
 
 if __name__=='__main__':
     main()
