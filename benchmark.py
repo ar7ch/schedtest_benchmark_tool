@@ -28,7 +28,7 @@ class EvalResults:
         return [e.sched_ratio for e in self.evals_list]
 
     def get_all_runtimes(self):
-        return np.array([e.get_tasksys_runtimes() for e in self.evals_list])
+        return np.array([e.get_tasksys_runtimes() for e in self.evals_list], dtype=object)
 
 
 @dataclass
@@ -123,6 +123,7 @@ def evaluate(test_set: tsparser.TestSet, executable) -> EvalResults:
                 completed_run = profiler.profile(os.path.abspath(executable), inp, trials=1, input_from_file=False)
             except ValueError as err:
                 OutputRecord().write(f'Error running {os.path.basename(executable)}: {str(err)}, probably out of memory or the executable has wrong output format. Skipping')
+                ets.tasksets_runs.append(profiler.CompletedRun())
                 continue
             ets.tasksets_runs.append(completed_run)
             OutputRecord().write(f'test {i + 1}/{total_ts}: n={tasksys.n}, n_heavy={tasksys.n_heavy}, U={tasksys.util}, '
