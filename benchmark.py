@@ -125,7 +125,7 @@ def evaluate(test_set: tsparser.TestSet, executable) -> EvalResults:
             except ValueError as err:
                 tac = time.perf_counter()
                 OutputRecord().write(f'Error running {os.path.basename(executable)}: {str(err)}, probably out of memory or the executable has wrong output format. Skipping')
-                ets.tasksets_runs.append(profiler.CompletedRun(runtime=tac-tic))
+                ets.tasksets_runs.append(profiler.CompletedRun(runtime=tac-tic, states=1))
                 continue
             ets.tasksets_runs.append(completed_run)
             OutputRecord().write(f'test {i + 1}/{total_ts}: n={tasksys.n}, n_heavy={tasksys.n_heavy}, U={tasksys.util}, '
@@ -184,11 +184,12 @@ def plot_results(test_set: tsparser.TestSet, results_list: List[EvalResults], pl
     import matplotlib.pyplot as plt
     COLORS = ['blue', 'green', 'orange', 'red', 'purple', 'brown', 'pink']
     x_values = test_set.get_varying_parameters()
+    fname_str = '' if not print_filename else f'File {os.path.basename(test_set.input_file_name)}'
+    legend_labels = [os.path.basename(res.label) for res in results_list]
 
     def plot_res(y_values_list: list, fig_num: int, y_str: str, labels: List[str]):
         plt.figure(fig_num)
         plt.grid(True)
-        fname_str = '' if not print_filename else f'File {os.path.basename(test_set.input_file_name)}'
         plt.title(f'Comparison of exact test implementations\n{fname_str}')
         plt.xlabel(f'{str(test_set.varying_param)}')
         plt.ylabel(y_str)
@@ -202,16 +203,15 @@ def plot_results(test_set: tsparser.TestSet, results_list: List[EvalResults], pl
         figname = figname.replace(' ', '_')
         figname += '.png'
         plt.savefig(OutputRecord().join_filename(figname))
-
     fig_num = 0
     if plot_states:
-        plot_res([res.get_states_values() for res in results_list], fig_num, 'number of states', [os.path.basename(res.label) for res in results_list])
+        plot_res([res.get_states_values() for res in results_list], fig_num, 'number of states', legend_labels)
         fig_num += 1
     if plot_runtime:
-        plot_res([res.get_rt_values() for res in results_list], fig_num, 'runtime, seconds', [os.path.basename(res.label) for res in results_list])
+        plot_res([res.get_rt_values() for res in results_list], fig_num, 'runtime, seconds', legend_labels)
         fig_num += 1
     if plot_sched:
-        plot_res([res.get_sched_ratio_values() for res in results_list], fig_num, 'share of schedulable tasks, %', [os.path.basename(res.label) for res in results_list])
+        plot_res([res.get_sched_ratio_values() for res in results_list], fig_num, 'share of schedulable tasks, %', legend_labels)
         fig_num += 1
 
     if len(x_values) > 1 and x_values[0] > x_values[1]: # values sequence is descending
@@ -223,13 +223,13 @@ def plot_results(test_set: tsparser.TestSet, results_list: List[EvalResults], pl
     for i in range(len(data)-1):
         plt.figure(fig_num)
         plt.grid(True)
-        plt.title(f'Comparison of exact test implementations\n')
+        plt.title(f'Comparison of exact test implementations\n{fname_str}\nPerformance gain of {legend_labels[-1]} compared to {legend_labels[i]}')
         plt.xlabel(f'{str(test_set.varying_param)}')
         plt.ylabel('performance gain, times')
         plt.boxplot((data[i] / data[-1]).T, flierprops=dict(markerfacecolor='g', marker='D'))
         plt.xticks([i for i in range(1, len(x_values)+1)], x_values)
+        plt.savefig(OutputRecord().join_filename(f"boxplot_{legend_labels[-1]}_to_{legend_labels[i]}.png"))
         fig_num += 1
-    plt.savefig(OutputRecord().join_filename('boxplot_rt.png'))
     if open_plots:
         plt.show(block=False)
         input('Press enter to exit')
@@ -237,6 +237,7 @@ def plot_results(test_set: tsparser.TestSet, results_list: List[EvalResults], pl
 
 def main():
     input_filename, executables_list, open_plots, dump_path, output_dir = parse()
+    write_dir = output_dir is not None
     is_dump = dump_path is not None
     try:
         OutputRecord(input_filename, output_dir)
@@ -246,9 +247,9 @@ def main():
             evaluations_by_exec = OutputRecord().restore_results(dump_path)
         else:
             evaluations_by_exec: List[EvalResults] = benchmark_executables(test_set, executables_list)
-        OutputRecord().dump_results(evaluations_by_exec)
+            OutputRecord().dump_results(evaluations_by_exec)
         plot_results(test_set, evaluations_by_exec, plot_states=True, plot_runtime=True, plot_sched=True, print_filename=True, open_plots=open_plots)
-        if is_dump:
+        if is_dump and not write_dir:
             OutputRecord().cleanup_output_dir()
         else:
             OutputRecord().write(f'Output files saved to {OutputRecord().output_dir}')
