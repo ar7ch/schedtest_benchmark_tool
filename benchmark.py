@@ -211,16 +211,21 @@ def plot_results(test_set: tsparser.TestSet, results_list: List[EvalResults], pl
     if plot_sched:
         plot_res([res.get_sched_ratio_values() for res in results_list], fig_num, 'share of schedulable tasks, %', [os.path.basename(res.label) for res in results_list])
         fig_num += 1
-    green_diamond = dict(markerfacecolor='g', marker='D')
-    data = [res.get_all_runtimes()[::-1] for res in results_list]
+
+    if len(x_values) > 1 and x_values[0] > x_values[1]: # values sequence is descending
+        x_values = x_values[::-1]
+        data = [res.get_all_runtimes()[::-1] for res in results_list]
+    else:
+        data = [res.get_all_runtimes() for res in results_list]
+
     for i in range(len(data)-1):
         plt.figure(fig_num)
         plt.grid(True)
         plt.title(f'Comparison of exact test implementations\n')
         plt.xlabel(f'{str(test_set.varying_param)}')
         plt.ylabel('performance gain, times')
-        plt.boxplot((data[i] / data[-1]).T, flierprops=green_diamond)
-        plt.xticks([i for i in range(1, len(x_values)+1)], x_values[::-1])
+        plt.boxplot((data[i] / data[-1]).T, flierprops=dict(markerfacecolor='g', marker='D'))
+        plt.xticks([i for i in range(1, len(x_values)+1)], x_values)
         fig_num += 1
     plt.savefig(OutputRecord().join_filename('boxplot_rt.png'))
     if open_plots:
@@ -239,12 +244,12 @@ def main():
             evaluations_by_exec = OutputRecord().restore_results(dump_path)
         else:
             evaluations_by_exec: List[EvalResults] = benchmark_executables(test_set, executables_list)
-            OutputRecord().dump_results(evaluations_by_exec)
         plot_results(test_set, evaluations_by_exec, plot_states=True, plot_runtime=True, plot_sched=True, print_filename=True, open_plots=open_plots)
         if is_dump:
             OutputRecord().cleanup_output_dir()
         else:
             OutputRecord().write(f'Output files saved to {OutputRecord().output_dir}')
+            OutputRecord().dump_results(evaluations_by_exec)
     except KeyboardInterrupt:
         OutputRecord().write(f"Aborting, cleaning up the directory {OutputRecord().output_dir}")
         OutputRecord().cleanup_output_dir()
