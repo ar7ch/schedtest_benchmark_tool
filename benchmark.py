@@ -120,10 +120,12 @@ def evaluate(test_set: tsparser.TestSet, executable) -> EvalResults:
                 for el in task.as_tuple():
                     inp += f' {el}'
             try:
+                tic = time.perf_counter()
                 completed_run = profiler.profile(os.path.abspath(executable), inp, trials=1, input_from_file=False)
             except ValueError as err:
+                tac = time.perf_counter()
                 OutputRecord().write(f'Error running {os.path.basename(executable)}: {str(err)}, probably out of memory or the executable has wrong output format. Skipping')
-                ets.tasksets_runs.append(profiler.CompletedRun())
+                ets.tasksets_runs.append(profiler.CompletedRun(runtime=tac-tic))
                 continue
             ets.tasksets_runs.append(completed_run)
             OutputRecord().write(f'test {i + 1}/{total_ts}: n={tasksys.n}, n_heavy={tasksys.n_heavy}, U={tasksys.util}, '
@@ -244,12 +246,12 @@ def main():
             evaluations_by_exec = OutputRecord().restore_results(dump_path)
         else:
             evaluations_by_exec: List[EvalResults] = benchmark_executables(test_set, executables_list)
+        OutputRecord().dump_results(evaluations_by_exec)
         plot_results(test_set, evaluations_by_exec, plot_states=True, plot_runtime=True, plot_sched=True, print_filename=True, open_plots=open_plots)
         if is_dump:
             OutputRecord().cleanup_output_dir()
         else:
             OutputRecord().write(f'Output files saved to {OutputRecord().output_dir}')
-            OutputRecord().dump_results(evaluations_by_exec)
     except KeyboardInterrupt:
         OutputRecord().write(f"Aborting, cleaning up the directory {OutputRecord().output_dir}")
         OutputRecord().cleanup_output_dir()

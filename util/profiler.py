@@ -28,7 +28,7 @@ def profile(exec_name: str, stdin: str, trials=3, input_from_file=True) -> Compl
     global rexp_rt
     global rexp_states
     if rexp_rt is None:
-        rexp_rt = re.compile(r'Elapsed time: (\d*\.\d*(e(\+|\-)\d*)*).', flags=re.MULTILINE)
+        rexp_rt = re.compile(r'Elapsed time: (\d*(\.\d*)*(e(\+|\-)?\d*)*).', flags=re.MULTILINE)
     if rexp_states is None:
         rexp_states = re.compile(r'(\d*) states generated.')
     avg = 0
