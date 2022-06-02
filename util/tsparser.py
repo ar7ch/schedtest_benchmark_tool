@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import io
-from typing import List, Tuple
+from typing import List, Tuple, Callable
 import os
 from dataclasses import dataclass, field
 import util
@@ -28,9 +28,9 @@ class TaskSystem:
     util: float = field(default=0)
     d_ratio: float = field(default=0)
     pd_ratio: float = field(default=0)
-    tasksets: List[List[Task]] = field(default_factory=list)  # nested lists in case of a multiple tasksets with same parameters (easier to handle)
+    taskset: List[Task] = field(default_factory=list)  # nested lists in case of a multiple tasksets with same parameters (easier to handle)
 
-    def sysparam_tuple(self) -> Tuple[int, int, float, float, float]:
+    def sysparam_tuple(self) -> Tuple:
         return self.n, self.n_heavy, self.util, self.d_ratio, self.pd_ratio
 
 
@@ -68,7 +68,7 @@ class TestSet:
     def get_total_tasksets_num(self) -> int:
         ans = 0
         for tasksys in self.tasksys_list:
-            ans += len(tasksys.tasksets)
+            ans += len(tasksys.taskset)
         return ans
 
     def get_varying_parameters(self) -> List:
@@ -93,7 +93,7 @@ class TestSet:
                         assert False
         return self.varying_param
 
-
+'''
 def parse_taskset_file(input_file_name: str) -> TestSet:
     """
     Parses input file (CPLEX-generated tasksets) into a collection of TaskSystem representation (a TestSet).
@@ -128,24 +128,39 @@ def parse_taskset_file(input_file_name: str) -> TestSet:
                 vals = vals[3:]
                 taskset.append(task)
             assert len(taskset) == cur_tasksys.n
-            cur_tasksys.tasksets.append(taskset)
+            cur_tasksys.taskset.append(taskset)
     return TestSet(list(tasksys_dict.values()), input_file_name)
+'''
 
-"""
-class OutputRecord:
-    instance: OutputRecordInstance = None
 
-    @classmethod
-    def get_instance(cls, input_file_name=None, write_to_file=True):
-        if input_file_name is not None and cls.instance is None:
-            cls.instance = OutputRecordInstance(input_file_name, write_to_file)
-            return cls.instance
-        elif input_file_name is None and cls.instance is not None:
-            return cls.instance
-        else:
-            raise ValueError('Singleton is already initialized')
-
-    @classmethod
-    def replace_instance(cls, input_file_name, write_to_file=True):
-        cls.instance = OutputRecordInstance(input_file_name, write_to_file)
-"""
+def read_and_evaluate(input_file_name: str, unit_action: Callable, action_args: List):
+    """
+    Parses input file (CPLEX-generated tasksets) into a collection of TaskSystem representation (a TestSet).
+    :param input_file_name:
+    :param unit_action action to be performed on a parsed taskset
+    :return:
+    """
+    with open(os.path.abspath(input_file_name), 'r') as inp_file:
+        while True:
+            in_str = inp_file.readline()
+            if len(in_str) <= 0:
+                break
+            elif in_str[0] == '#':
+                continue
+            vals = []
+            # parse numerical tab-delimited values into a list of ints (and floats)
+            for v in in_str.split('\t'):
+                try:
+                    vals.append(int(v.strip()))
+                except ValueError:
+                    vals.append(float(v.strip()))
+            sysparams_tup = tuple(vals[0:5])
+            cur_tasksys = TaskSystem(PROC_NUMBER, *sysparams_tup)
+            # cut to tasks description only
+            vals = vals[5:]
+            while len(vals) > 0:
+                task = Task(*vals[0:3])
+                vals = vals[3:]
+                cur_tasksys.taskset.append(task)
+            assert len(cur_tasksys.taskset) == cur_tasksys.n
+            unit_action(cur_tasksys, *action_args)  # evaluate

@@ -19,6 +19,10 @@ class CompletedRun:
     runtime: float = field(default=0, hash=True)
     sched: bool = field(default=False, hash=True)
 
+    def as_tuple(self):
+        s = '1' if self.sched else '0'
+        return s, self.runtime, self.states
+
 
 rexp_rt = None
 rexp_states = None

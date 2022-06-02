@@ -9,3 +9,4 @@ def is_interactive(name: str) -> bool:
 
 def print_if_interactive(msg: str, name: str):
     print_if(msg, is_interactive(name))
+

@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 
 from __future__ import annotations
-from typing import List, TextIO
+from typing import List, TextIO, Tuple
 import argparse
 import time
 import os
@@ -11,7 +11,10 @@ import pickle
 
 from util import tsparser, profiler
 import util
+import config
 
+
+varying_param = None
 
 @dataclass
 class EvalResults:
@@ -58,50 +61,70 @@ class OutputRecordSingleton(type):
 class OutputRecord(metaclass=OutputRecordSingleton):
     output_dir: str = field(default=None)
     output_file_fd: TextIO = field(default=None)
+    output_file_name: str = field(default="evaluation.txt")
 
-    def __init__(self, input_file_name=None, _output_dir: str=None, write_to_file=True):
+    def __init__(self, output_dir=None, write_to_file=True):
+        self.output_dir = os.path.abspath(output_dir)
         if write_to_file:
-            import datetime
-            date = datetime.datetime.now()
-            date_str = str(date.isoformat(timespec='seconds'))
-            input_file_basename = os.path.basename(input_file_name)
-            dirname = f'run_{date_str}_{os.path.splitext(input_file_basename)[0]}'
-            if _output_dir is not None:
-                dirname = os.path.basename(_output_dir)
-            self.output_dir = os.path.join(os.getcwd(), dirname)
-            try:
-                os.mkdir(self.output_dir)
-            except FileExistsError:
-                pass
-            self.output_file_fd = open(self.join_filename('log.txt'), 'a+')
-            print(f"# dumping file {input_file_basename} on {date_str}", file=self.output_file_fd)
+            os.mkdir(self.output_dir)
+            self.output_file_name = self.join_filename(self.output_file_name)
+            self.output_file_fd = open(self.output_file_name, 'a+')
 
     def join_filename(self, filename: str) -> str:
         return os.path.join(self.output_dir, filename)
 
-    def write(self, msg: str) -> None:
+    def write_collection(self, out_col, _end='\n', comment=False) -> None:
+        out_str = ''
+        for el in out_col:
+            out_str += str(el) + '\t'
+        self.write_to_file(out_str, _end, comment)
+
+    def write_to_file(self, msg: str, _end='\n', comment=False):
+        pref = ''
+        if comment:
+            pref += '# '
+        print(pref + msg, end=_end, file=self.output_file_fd)
+
+    def info(self, msg: str) -> None:
         util.print_if_interactive(msg, __name__)
         if self.output_file_fd is not None:
             print(msg, file=self.output_file_fd)
 
-    def cleanup_output_dir(self):
-        from shutil import rmtree
-        rmtree(self.output_dir)
+    def close_output_file(self):
+        if self.output_file_fd is not None:
+            self.output_file_fd.close()
+            self.output_file_fd = None
 
     def __del__(self):
         if self.output_file_fd is not None:
             self.output_file_fd.close()
 
-    def dump_results(self, obj: list[EvalResults]):
-        with open(self.join_filename('dump.bin'), 'w+b') as dump_fd:
-            pickle.dump(obj, dump_fd)
 
-    def restore_results(self, path: str):
-        with open(os.path.abspath(path), 'rb') as load_fd:
-            loaded_obj = pickle.load(load_fd)
-        return loaded_obj
+def evaluate(tasksys: tsparser.TaskSystem, executables_list: str):
+    input_str = f'{tasksys.m} {tasksys.n}'
+    sched = None
+    # fill in the input
+    out = OutputRecord()
+    out.write_collection(tasksys.sysparam_tuple(), _end='')
+    for task in tasksys.taskset:
+        out.write_collection(task.as_tuple(), _end='')
+        for el in task.as_tuple():
+            input_str += f' {el}'
+    for i, executable in enumerate(executables_list):
+        try:
+            completed_run = profiler.profile(os.path.abspath(executable), input_str, trials=1, input_from_file=False)
+            if sched is None:
+                sched = completed_run.sched
+            else:
+                if sched != completed_run.sched:
+                    raise RuntimeError(f"Results mismatch: {executables_list[0]} reports {sched}, {executable} reports {completed_run.sched}")
+            out.write_collection(completed_run.as_tuple(), _end='\t')
+        except ValueError as err:
+            print(f'Error running {os.path.basename(executable)}: {str(err)}, probably out of memory or the executable has wrong output format.')
+            return
 
 
+'''
 def evaluate(test_set: tsparser.TestSet, executable) -> EvalResults:
     """
     Evaluates tasksets from TestSet provided using external executable.
@@ -114,7 +137,7 @@ def evaluate(test_set: tsparser.TestSet, executable) -> EvalResults:
     total_ts = test_set.get_total_tasksets_num()
     for tasksys in test_set.tasksys_list:
         ets = EvaluatedTaskSystem()
-        for taskset in tasksys.tasksets:
+        for taskset in tasksys.taskset:
             inp = f'{tasksys.m} {tasksys.n}'
             for task in taskset:
                 for el in task.as_tuple():
@@ -137,13 +160,13 @@ def evaluate(test_set: tsparser.TestSet, executable) -> EvalResults:
             ets.avg_rt += completed_run.runtime
             ets.avg_states += completed_run.states
             i += 1
-        ets.sched_ratio /= len(tasksys.tasksets)
+        ets.sched_ratio /= len(tasksys.taskset)
         ets.sched_ratio *= 100
-        ets.avg_states /= len(tasksys.tasksets)
-        ets.avg_rt /= len(tasksys.tasksets)
+        ets.avg_states /= len(tasksys.taskset)
+        ets.avg_rt /= len(tasksys.taskset)
         results.evals_list.append(ets)
     return results
-
+'''
 
 def parse():
     parser = argparse.ArgumentParser(description='Accepts generated task sets as input and benchmarks different exact test executables')
@@ -164,7 +187,7 @@ def benchmark_executables(test_set: tsparser.TestSet, executables_list: List[str
     time_meas = []
     main_tic = time.perf_counter()
     for i, _exec in enumerate(executables_list):
-        OutputRecord().write(f'({i + 1}/{len(executables_list)}) Evaluating {os.path.basename(_exec)}')
+        OutputRecord().info(f'({i + 1}/{len(executables_list)}) Evaluating {os.path.basename(_exec)}')
         tic = time.perf_counter()
         res: EvalResults = evaluate(test_set, _exec)
         res.label = _exec
@@ -172,11 +195,11 @@ def benchmark_executables(test_set: tsparser.TestSet, executables_list: List[str
         tac = time.perf_counter()
         diff = tac - tic
         time_meas.append(diff)
-        OutputRecord().write(f'({i + 1}/{len(executables_list)}) Done (completed in {diff:0.4f} s)')
+        OutputRecord().info(f'({i + 1}/{len(executables_list)}) Done (completed in {diff:0.4f} s)')
     main_tac = time.perf_counter()
     main_diff = main_tac - main_tic
-    OutputRecord().write(f'Experiment completed in {main_diff:0.4f} s')
-    OutputRecord().write(tuple(time_meas))
+    OutputRecord().info(f'Experiment completed in {main_diff:0.4f} s')
+    OutputRecord().info(tuple(time_meas))
     return results_executables
 
 
@@ -234,14 +257,71 @@ def plot_results(test_set: tsparser.TestSet, results_list: List[EvalResults], pl
         plt.show(block=False)
         input('Press enter to exit')
 
+def detect_varying(prev_tsys: Tuple, tsys: Tuple):
+    for i, _ in enumerate(tsys):
+        if tsys[i] != prev_tsys[i]:
+            return i
+
+@dataclass
+class EvaluatedTasksystem:
+    sched_part:
+
+def parse_evaluation(executables_list: list[str], eval_filename: str):
+    from config import n, task_len, result_len
+    with open(eval_filename, 'r') as file:
+        sysparams_tup = None  # a 5-tuple of system parameters
+        prev_tup = None   # previous one (for varying parameter detection)
+        exec_results = []
+        tasksys_eval = dict() # aggregate results with the same task parameters
+        while True:
+            in_str = file.readline()
+            if len(in_str) <= 0: # got empty string - reached end of file
+                break
+            elif in_str[0] == '#':  # ignore comment lines
+                continue
+            vals = []
+            # parse numerical tab-delimited values into a list of ints (and floats)
+            for v in in_str.split('\t'):  # get values in a single line
+                try:
+                    vals.append(int(v.strip()))
+                except ValueError:
+                    vals.append(float(v.strip()))
+            if prev_tup is not None:
+                prev_tup = sysparams_tup
+            sysparams_tup = tuple(vals[0:5])  # first five values are system parameters
+            if prev_tup != sysparams_tup:
+                global varying_param
+                varying_param = detect_varying(prev_tup, sysparams_tup)
+            # skip tasks themselves; we are not interested in them anymore
+            skip_amount = sysparams_tup[n] * task_len
+            vals = vals[skip_amount::]
+            # fetch execution results
+            while len(vals) > 0:
+                res = vals[0:result_len]  # fetch one result
+                res = map(int, res)
+                exec_results.append(res) # for every executable
+            if sysparams_tup not in tasksys_eval:
+                tasksys_eval[sysparams_tup] = []
+            tasksys_eval[sysparams_tup].append(exec_results)  # add results for this line (if it is a part of series of tests for the same system, results will be aggregated)
+    return tasksys_eval
+
+
 
 def main():
     input_filename, executables_list, open_plots, dump_path, output_dir = parse()
     write_dir = output_dir is not None
     is_dump = dump_path is not None
+    out = OutputRecord(output_dir)
+    out.write_to_file(f"input file {os.path.abspath(input_filename)}", comment=True)
+    out.write_to_file(f"processors = {config.PROC_NUM}", comment=True)
+    out.write_collection(config.header, comment=True)
+    tsparser.read_and_evaluate(input_filename, evaluate, [executables_list])
+    results_dict = parse_evaluation(executables_list, out.output_file_name)
+
+    '''
     try:
         OutputRecord(input_filename, output_dir)
-        test_set: tsparser.TestSet = tsparser.parse_taskset_file(input_filename)
+        test_set: tsparser.TestSet = tsparser.parse_taskset_file(input_filename, evaluate)
         if is_dump:
             OutputRecord().write(f"Restoring dump {os.path.basename(dump_path)}")
             evaluations_by_exec = OutputRecord().restore_results(dump_path)
@@ -258,6 +338,7 @@ def main():
         OutputRecord().cleanup_output_dir()
     except FileNotFoundError as err:
         OutputRecord().write('Failed to open file:' + str(err))
+    '''
 
 if __name__=='__main__':
     main()
