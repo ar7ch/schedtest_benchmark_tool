@@ -147,6 +147,7 @@ def read_and_evaluate(input_file_name: str, unit_action: Callable, action_args: 
         while True:
             in_str = inp_file.readline()
             lineno += 1
+            print(f'Test {lineno}/{total_lines}')
             if len(in_str) <= 0:
                 break
             elif in_str[0] == '#':
@@ -167,5 +168,5 @@ def read_and_evaluate(input_file_name: str, unit_action: Callable, action_args: 
                 vals = vals[3:]
                 cur_tasksys.taskset.append(task)
             assert len(cur_tasksys.taskset) == cur_tasksys.n
-            unit_action(cur_tasksys, *action_args, num=(lineno,total_lines))  # evaluate
+            unit_action(cur_tasksys, *action_args)  # evaluate
             lineno += 1

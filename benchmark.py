@@ -190,7 +190,7 @@ def parse():
         open_plots = False
     return args.taskset_file, args.executables_list.split(','), open_plots, args.dump, args.output_dir
 
-
+'''
 def benchmark_executables(test_set: tsparser.TestSet, executables_list: List[str]) -> List[EvalResults]:
     results_executables = []
     time_meas = []
@@ -265,6 +265,8 @@ def plot_results(test_set: tsparser.TestSet, results_list: List[EvalResults], pl
     if open_plots:
         plt.show(block=False)
         input('Press enter to exit')
+'''
+
 
 def detect_varying(prev_tsys: Tuple, tsys: Tuple):
     for i, _ in enumerate(tsys):
@@ -318,6 +320,7 @@ def parse_evaluation(executables_list: list[str], eval_filename: str):
                 tasksys_eval[sysparams_tup] = []
             tasksys_eval[sysparams_tup].append(exec_results)  # add results for this line (if it is a part of series of tests for the same system, results will be aggregated)
     return tasksys_eval, xvalues
+
 
 def prepare_plotting_data(results: Dict, exec_num):
     from config import sched, runtime, states, unsched, total
@@ -389,10 +392,10 @@ def prepare_plotting_data(results: Dict, exec_num):
 
 
 def plot_wrapper(x_values: list, y_values_list: list, fig_num: int, xlabel: str, ylabel: str, title: str, legend_labels: List[str], ylog=False, grid=True):
-    COLORS = ['blue', 'green', 'red', 'orange', 'purple', 'brown', 'pink']
-
+    #COLORS = ['blue', 'green', 'red', 'orange', 'purple', 'brown', 'pink']
+    COLORS = ['black']
     plt.figure(fig_num)
-    plt.grid(grid)
+    plt.grid(grid, alpha=0.5, linestyle=':')
     if title is None:
         title = ylabel
     plt.title(title)
@@ -400,11 +403,11 @@ def plot_wrapper(x_values: list, y_values_list: list, fig_num: int, xlabel: str,
     plt.ylabel(ylabel)
     for i, y_values in enumerate(y_values_list):
         cont_color = COLORS[i % len(COLORS)]
-        marker = ['o', 'x', '*', 'D']
+        marker = ['o', 'x', '*', 'D', 'd', 's', '1', '+']
         if ylog:
-            plt.semilogy(x_values, y_values, marker=marker[i], label=legend_labels[i], color=cont_color, alpha=0.8)
+            plt.semilogy(x_values, y_values, marker=marker[i % len(marker)], label=legend_labels[i], color=cont_color, alpha=0.8)
         else:
-            plt.plot(x_values, y_values, marker=marker[i], label=legend_labels[i], color=cont_color, alpha=0.7, markersize=10)
+            plt.plot(x_values, y_values, marker=marker[i % len(marker)], label=legend_labels[i], color=cont_color, alpha=0.7, markersize=10)
         plt.xticks(x_values)
     plt.legend()
 
@@ -424,13 +427,13 @@ def boxplot_wrapper(x_values: List, y_values_list: List[List], fig_num: int, xla
         if ylabel is None:
             ylabel = 'Runtime reduction, times'
         plt.ylabel(ylabel)
-        plt.grid(grid)
+        plt.grid(grid, alpha=0.5, linestyle=':')
         for num, _ in enumerate(y_i):
             for k, _ in enumerate(y_i[num]):
                 y_i[num][k] /= y_cmp[num][k]
         plot_title = f'Runtime reduction of {legend_labels[-1]} compared to {legend_labels[i]}' + title
         plt.title(plot_title)
-        plt.boxplot(y_i, flierprops=dict(markerfacecolor='g', marker='D'))
+        plt.boxplot(y_i, sym='+')
         plt.xticks([i for i in range(1, len(x_values) + 1)], x_values)
         OutputRecord().savefig(plot_title.replace(' ', '_').replace('\n', ''))
         #plt.xlim(min(x_values), max(x_values))
@@ -446,7 +449,8 @@ def make_plots(meas_results, x_values, open_plots=True):
 
     log_y_axis = [True, True, True, False, False, False, False]
 
-    grid = False
+    grid = True
+    '''
     fig_num = 0
     for fig_num, y_values in enumerate(meas_results[:-4]):
         plot_wrapper(x_values, y_values, fig_num, config.legend[varying_param], ylabels[fig_num], None, lines_legend, ylog=log_y_axis[fig_num], grid=grid)
@@ -457,7 +461,7 @@ def make_plots(meas_results, x_values, open_plots=True):
     out.savefig(ylabels[fig_num].replace(' ', '_'))
     plt.yticks(list(range(0, 110, 10)))
     fig_num += 1
-    """
+    '''
     fig_num = 0
     plot_wrapper(x_values, execs_avg_rt_sched, fig_num, config.legend[varying_param], ylabels[fig_num], None, lines_legend, ylog=True)
     out.savefig(ylabels[fig_num].replace(' ', '_'))
@@ -488,7 +492,6 @@ def make_plots(meas_results, x_values, open_plots=True):
     out.savefig(ylabels[fig_num].replace(' ', '_'))
     plt.yticks(list(range(0, 110, 10)))
     fig_num += 1
-    """
     # Boxplots
     boxplot_wrapper(x_values, all_rt_sched, fig_num, config.legend[varying_param], None, '\namong schedulable tasksets', lines_legend, grid)
     fig_num += len(all_rt)-1 # creates >= 1 figures
@@ -530,11 +533,10 @@ def main():
         meas_results = prepare_plotting_data(results_dict, len(executables_list))
         make_plots(meas_results, x_values)
 
-
     except BaseException as err:
-        out.info(str(err))
+        print(str(err))
     except KeyboardInterrupt as err:
-        out.info('Aborting...')
+        print('Aborting...')
 
 if __name__=='__main__':
     main()
