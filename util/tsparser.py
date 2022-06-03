@@ -140,9 +140,13 @@ def read_and_evaluate(input_file_name: str, unit_action: Callable, action_args: 
     :param unit_action action to be performed on a parsed taskset
     :return:
     """
-    with open(os.path.abspath(input_file_name), 'r') as inp_file:
+    fname = os.path.abspath(input_file_name)
+    total_lines = sum(1 for line in open(fname))
+    lineno = 0
+    with open(fname, 'r') as inp_file:
         while True:
             in_str = inp_file.readline()
+            lineno += 1
             if len(in_str) <= 0:
                 break
             elif in_str[0] == '#':
@@ -163,4 +167,5 @@ def read_and_evaluate(input_file_name: str, unit_action: Callable, action_args: 
                 vals = vals[3:]
                 cur_tasksys.taskset.append(task)
             assert len(cur_tasksys.taskset) == cur_tasksys.n
-            unit_action(cur_tasksys, *action_args)  # evaluate
+            unit_action(cur_tasksys, *action_args, num=(lineno,total_lines))  # evaluate
+            lineno += 1

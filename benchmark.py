@@ -1,13 +1,15 @@
 #!/usr/bin/python3
 
 from __future__ import annotations
-from typing import List, TextIO, Tuple
+from typing import List, TextIO, Tuple, Dict
 import argparse
 import time
 import os
 import numpy as np
 from dataclasses import dataclass, field
 import pickle
+
+import matplotlib.pyplot as plt
 
 from util import tsparser, profiler
 import util
@@ -62,10 +64,11 @@ class OutputRecord(metaclass=OutputRecordSingleton):
     output_dir: str = field(default=None)
     output_file_fd: TextIO = field(default=None)
     output_file_name: str = field(default="evaluation.txt")
+    fig_save_ext: str = field(default=".pdf")
 
-    def __init__(self, output_dir=None, write_to_file=True):
-        self.output_dir = os.path.abspath(output_dir)
-        if write_to_file:
+    def __init__(self, output_dir=None):
+        if output_dir is not None:
+            self.output_dir = os.path.abspath(output_dir)
             os.mkdir(self.output_dir)
             self.output_file_name = self.join_filename(self.output_file_name)
             self.output_file_fd = open(self.output_file_name, 'a+')
@@ -87,8 +90,6 @@ class OutputRecord(metaclass=OutputRecordSingleton):
 
     def info(self, msg: str) -> None:
         util.print_if_interactive(msg, __name__)
-        if self.output_file_fd is not None:
-            print(msg, file=self.output_file_fd)
 
     def close_output_file(self):
         if self.output_file_fd is not None:
@@ -99,10 +100,17 @@ class OutputRecord(metaclass=OutputRecordSingleton):
         if self.output_file_fd is not None:
             self.output_file_fd.close()
 
+    def savefig(self, fname: str):
+        if self.output_dir is not None:
+            file_ext = fname + self.fig_save_ext
+            file_path = self.join_filename(file_ext)
+            plt.savefig(file_path)
+            self.info(f'Saved as {file_path}')
+
 
 def evaluate(tasksys: tsparser.TaskSystem, executables_list: str):
     input_str = f'{tasksys.m} {tasksys.n}'
-    sched = None
+    sched_value = None  # check if all executables yield the same answer
     # fill in the input
     out = OutputRecord()
     out.write_collection(tasksys.sysparam_tuple(), _end='')
@@ -113,15 +121,16 @@ def evaluate(tasksys: tsparser.TaskSystem, executables_list: str):
     for i, executable in enumerate(executables_list):
         try:
             completed_run = profiler.profile(os.path.abspath(executable), input_str, trials=1, input_from_file=False)
-            if sched is None:
-                sched = completed_run.sched
+            if sched_value is None:
+                sched_value = completed_run.sched
             else:
-                if sched != completed_run.sched:
-                    raise RuntimeError(f"Results mismatch: {executables_list[0]} reports {sched}, {executable} reports {completed_run.sched}")
-            out.write_collection(completed_run.as_tuple(), _end='\t')
+                if sched_value != completed_run.sched:
+                    raise RuntimeError(f"Results mismatch: {executables_list[0]} reports {sched_value}, {executable} reports {completed_run.sched}")
+            out.write_collection(completed_run.as_tuple(), _end='')  # extra spacing between exec results
         except ValueError as err:
             print(f'Error running {os.path.basename(executable)}: {str(err)}, probably out of memory or the executable has wrong output format.')
             return
+    out.write_to_file('', _end='\n')
 
 
 '''
@@ -262,16 +271,14 @@ def detect_varying(prev_tsys: Tuple, tsys: Tuple):
         if tsys[i] != prev_tsys[i]:
             return i
 
-@dataclass
-class EvaluatedTasksystem:
-    sched_part:
 
 def parse_evaluation(executables_list: list[str], eval_filename: str):
     from config import n, task_len, result_len
+    xvalues = []
+    global varying_param
     with open(eval_filename, 'r') as file:
         sysparams_tup = None  # a 5-tuple of system parameters
         prev_tup = None   # previous one (for varying parameter detection)
-        exec_results = []
         tasksys_eval = dict() # aggregate results with the same task parameters
         while True:
             in_str = file.readline()
@@ -279,66 +286,255 @@ def parse_evaluation(executables_list: list[str], eval_filename: str):
                 break
             elif in_str[0] == '#':  # ignore comment lines
                 continue
+            exec_results = []
             vals = []
             # parse numerical tab-delimited values into a list of ints (and floats)
-            for v in in_str.split('\t'):  # get values in a single line
+            for v in in_str.strip().split('\t'):  # get values in a single line
+                if len(v) < 1: continue
                 try:
                     vals.append(int(v.strip()))
                 except ValueError:
                     vals.append(float(v.strip()))
-            if prev_tup is not None:
-                prev_tup = sysparams_tup
+            prev_tup = sysparams_tup
             sysparams_tup = tuple(vals[0:5])  # first five values are system parameters
-            if prev_tup != sysparams_tup:
-                global varying_param
-                varying_param = detect_varying(prev_tup, sysparams_tup)
+            vals = vals[5::]
+            if prev_tup != sysparams_tup and prev_tup is not None:
+                if varying_param is None:
+                    varying_param = detect_varying(prev_tup, sysparams_tup)
+                    xvalues.append(prev_tup[varying_param])
+                    xvalues.append(sysparams_tup[varying_param])
+                else:
+                    xvalues.append(sysparams_tup[varying_param])
+
             # skip tasks themselves; we are not interested in them anymore
             skip_amount = sysparams_tup[n] * task_len
             vals = vals[skip_amount::]
             # fetch execution results
             while len(vals) > 0:
                 res = vals[0:result_len]  # fetch one result
-                res = map(int, res)
                 exec_results.append(res) # for every executable
+                vals = vals[result_len::]
             if sysparams_tup not in tasksys_eval:
                 tasksys_eval[sysparams_tup] = []
             tasksys_eval[sysparams_tup].append(exec_results)  # add results for this line (if it is a part of series of tests for the same system, results will be aggregated)
-    return tasksys_eval
+    return tasksys_eval, xvalues
 
+def prepare_plotting_data(results: Dict, exec_num):
+    from config import sched, runtime, states, unsched, total
+    execs_avg_rt = []
+    execs_avg_rt_sched = []
+    execs_avg_rt_unsched = []
+
+    execs_avg_states = []
+    execs_avg_states_sched = []
+    execs_avg_states_unsched = []
+
+    sched_ratio = []
+
+    all_rts_sched = []
+    all_rts_unsched = []
+    all_rts = []
+
+    for i in range(exec_num):
+        execs_avg_rt_sched.append([])
+        execs_avg_rt_unsched.append([])
+        execs_avg_rt.append([])
+
+        execs_avg_states_sched.append([])
+        execs_avg_states_unsched.append([])
+        execs_avg_states.append([])
+
+        all_rts_sched.append([])
+        all_rts_unsched.append([])
+        all_rts.append([])
+
+    #execs_avg_states = []
+    for tasksys_tuple, runs in results.items(): # for every tick of varying N
+        # split into sched and unsched categories
+        sched_runs = []
+        unsched_runs = []
+        for run in runs:
+            if run[0][sched] == 1:
+                sched_runs.append(run)
+            elif run[0][sched] == 0:
+                unsched_runs.append(run)
+
+        sched_ratio.append(100*len(sched_runs) / len(runs))
+
+
+        for exec_i in range(exec_num):
+            i_sched_rts = [run[exec_i][runtime] for run in sched_runs]
+            i_unsched_rts = [run[exec_i][runtime] for run in unsched_runs]
+            i_all_rts = [run[exec_i][runtime] for run in runs]
+
+            all_rts_sched[exec_i].append(i_sched_rts)
+            all_rts_unsched[exec_i].append(i_unsched_rts)
+            all_rts[exec_i].append(i_all_rts)
+
+
+            execs_avg_rt_sched[exec_i].append(sum(i_sched_rts) / len(i_sched_rts))
+            execs_avg_rt_unsched[exec_i].append(sum(i_unsched_rts) / len(i_unsched_rts))
+            execs_avg_rt[exec_i].append((sum(i_unsched_rts) + sum(i_sched_rts)) / (len(i_unsched_rts + i_sched_rts)))
+
+            i_sched_states = [run[exec_i][states] for run in sched_runs]
+            i_unsched_states = [run[exec_i][states] for run in unsched_runs]
+
+            execs_avg_states_sched[exec_i].append(sum(i_sched_states) / len(i_sched_states))
+            execs_avg_states_unsched[exec_i].append(sum(i_unsched_states) / len(i_unsched_states))
+            execs_avg_states[exec_i].append((sum(i_unsched_states) + sum(i_sched_states)) / (len(i_unsched_states + i_sched_states)))
+
+    return execs_avg_rt_sched, execs_avg_rt_unsched, execs_avg_rt, execs_avg_states_sched, execs_avg_states_unsched,  execs_avg_states, sched_ratio, all_rts_sched, all_rts_unsched, all_rts
+
+
+
+
+def plot_wrapper(x_values: list, y_values_list: list, fig_num: int, xlabel: str, ylabel: str, title: str, legend_labels: List[str], ylog=False, grid=True):
+    COLORS = ['blue', 'green', 'red', 'orange', 'purple', 'brown', 'pink']
+
+    plt.figure(fig_num)
+    plt.grid(grid)
+    if title is None:
+        title = ylabel
+    plt.title(title)
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
+    for i, y_values in enumerate(y_values_list):
+        cont_color = COLORS[i % len(COLORS)]
+        marker = ['o', 'x', '*', 'D']
+        if ylog:
+            plt.semilogy(x_values, y_values, marker=marker[i], label=legend_labels[i], color=cont_color, alpha=0.8)
+        else:
+            plt.plot(x_values, y_values, marker=marker[i], label=legend_labels[i], color=cont_color, alpha=0.7, markersize=10)
+        plt.xticks(x_values)
+    plt.legend()
+
+
+def boxplot_wrapper(x_values: List, y_values_list: List[List], fig_num: int, xlabel: str, ylabel: str, title: str, legend_labels: List[str], grid=True):
+    # if the values sequence is descending instead of ascending, reverse it for correct boxplot
+    if len(x_values) > 1 and x_values[0] > x_values[1]:
+        x_values = x_values[::-1]
+        y_values_list = [y_value[::-1] for y_value in y_values_list]
+
+    if title is None:
+        title = ''
+    y_cmp = y_values_list[-1]
+    for i, y_i in enumerate(y_values_list[:-1]):
+        plt.figure(fig_num+i)
+        plt.xlabel(xlabel)
+        if ylabel is None:
+            ylabel = 'Runtime reduction, times'
+        plt.ylabel(ylabel)
+        plt.grid(grid)
+        for num, _ in enumerate(y_i):
+            for k, _ in enumerate(y_i[num]):
+                y_i[num][k] /= y_cmp[num][k]
+        plot_title = f'Runtime reduction of {legend_labels[-1]} compared to {legend_labels[i]}' + title
+        plt.title(plot_title)
+        plt.boxplot(y_i, flierprops=dict(markerfacecolor='g', marker='D'))
+        plt.xticks([i for i in range(1, len(x_values) + 1)], x_values)
+        OutputRecord().savefig(plot_title.replace(' ', '_').replace('\n', ''))
+        #plt.xlim(min(x_values), max(x_values))
+
+
+def make_plots(meas_results, x_values, open_plots=True):
+    out = OutputRecord()
+    ylabels = ['Avg. runtime of schedulable tasksets', 'Avg. runtime among unschedulable tasksets', 'Avg. runtime among all tasksets', 'Avg. number of states among schedulable taksets',
+               'Avg. number of states among unschedulable tasksets', 'Avg. number of states among all tasksets', 'Schedulability ratio']
+    execs_avg_rt_sched, execs_avg_rt_unsched, execs_avg_rt, execs_avg_states_sched, execs_avg_states_unsched, execs_avg_states, sched_ratio, all_rt_sched, all_rt_unsched, all_rt = meas_results
+
+    lines_legend = ['Bonifaci 2012', 'our modification']
+
+    log_y_axis = [True, True, True, False, False, False, False]
+
+    grid = False
+    fig_num = 0
+    for fig_num, y_values in enumerate(meas_results[:-4]):
+        plot_wrapper(x_values, y_values, fig_num, config.legend[varying_param], ylabels[fig_num], None, lines_legend, ylog=log_y_axis[fig_num], grid=grid)
+        out.savefig(ylabels[fig_num].replace(' ', '_'))
+    # Sched ratio
+    fig_num += 1
+    plot_wrapper(x_values, [sched_ratio]*len(meas_results[0]), fig_num, config.legend[varying_param], ylabels[fig_num], None, lines_legend, grid=grid)
+    out.savefig(ylabels[fig_num].replace(' ', '_'))
+    plt.yticks(list(range(0, 110, 10)))
+    fig_num += 1
+    """
+    fig_num = 0
+    plot_wrapper(x_values, execs_avg_rt_sched, fig_num, config.legend[varying_param], ylabels[fig_num], None, lines_legend, ylog=True)
+    out.savefig(ylabels[fig_num].replace(' ', '_'))
+    fig_num += 1
+
+    plot_wrapper(x_values, execs_avg_rt_unsched, fig_num, config.legend[varying_param], ylabels[fig_num], None, lines_legend, ylog=True)
+    out.savefig(ylabels[fig_num].replace(' ', '_'))
+    fig_num += 1
+
+    plot_wrapper(x_values, execs_avg_rt, fig_num, config.legend[varying_param], ylabels[fig_num], None, lines_legend, ylog=True)
+    out.savefig(ylabels[fig_num].replace(' ', '_'))
+    fig_num += 1
+
+    plot_wrapper(x_values, execs_avg_states_sched, fig_num, config.legend[varying_param], ylabels[fig_num], None, lines_legend)
+    out.savefig(ylabels[fig_num].replace(' ', '_'))
+    fig_num += 1
+
+    plot_wrapper(x_values, execs_avg_states_unsched, fig_num, config.legend[varying_param], ylabels[fig_num], None, lines_legend)
+    out.savefig(ylabels[fig_num].replace(' ', '_'))
+    fig_num += 1
+
+    plot_wrapper(x_values, execs_avg_states, fig_num, config.legend[varying_param], ylabels[fig_num], None, lines_legend)
+    out.savefig(ylabels[fig_num].replace(' ', '_'))
+    fig_num += 1
+
+    # Schedulability ratio
+    plot_wrapper(x_values, [sched_ratio, sched_ratio], fig_num, config.legend[varying_param], ylabels[fig_num], None, lines_legend)
+    out.savefig(ylabels[fig_num].replace(' ', '_'))
+    plt.yticks(list(range(0, 110, 10)))
+    fig_num += 1
+    """
+    # Boxplots
+    boxplot_wrapper(x_values, all_rt_sched, fig_num, config.legend[varying_param], None, '\namong schedulable tasksets', lines_legend, grid)
+    fig_num += len(all_rt)-1 # creates >= 1 figures
+
+    boxplot_wrapper(x_values, all_rt_unsched, fig_num, config.legend[varying_param], None, '\namong unschedulable tasksets', lines_legend, grid)
+    fig_num += len(all_rt)-1
+
+    boxplot_wrapper(x_values, all_rt, fig_num, config.legend[varying_param], None, '\namong all tasksets', lines_legend, grid)
+    fig_num += len(all_rt)-1
+
+    if open_plots:
+        plt.show(block=False)
+        input('Press enter to exit')
 
 
 def main():
     input_filename, executables_list, open_plots, dump_path, output_dir = parse()
     write_dir = output_dir is not None
     is_dump = dump_path is not None
-    out = OutputRecord(output_dir)
-    out.write_to_file(f"input file {os.path.abspath(input_filename)}", comment=True)
-    out.write_to_file(f"processors = {config.PROC_NUM}", comment=True)
-    out.write_collection(config.header, comment=True)
-    tsparser.read_and_evaluate(input_filename, evaluate, [executables_list])
-    results_dict = parse_evaluation(executables_list, out.output_file_name)
-
-    '''
     try:
-        OutputRecord(input_filename, output_dir)
-        test_set: tsparser.TestSet = tsparser.parse_taskset_file(input_filename, evaluate)
-        if is_dump:
-            OutputRecord().write(f"Restoring dump {os.path.basename(dump_path)}")
-            evaluations_by_exec = OutputRecord().restore_results(dump_path)
+        if not is_dump:
+            out = OutputRecord(output_dir)
+            out.write_to_file(f"input file {os.path.abspath(input_filename)}", comment=True)
+            out.write_to_file(f"processors = {config.PROC_NUM}", comment=True)
+            out.write_collection(config.header, comment=True)
+            tsparser.read_and_evaluate(input_filename, evaluate, [executables_list])
+            out.info(f'Output files saved to {OutputRecord().output_dir}')
+            out.close_output_file()
+            parse_eval_file = out.output_file_name
         else:
-            evaluations_by_exec: List[EvalResults] = benchmark_executables(test_set, executables_list)
-            OutputRecord().dump_results(evaluations_by_exec)
-        plot_results(test_set, evaluations_by_exec, plot_states=True, plot_runtime=True, plot_sched=True, print_filename=True, open_plots=open_plots)
-        if is_dump and not write_dir:
-            OutputRecord().cleanup_output_dir()
-        else:
-            OutputRecord().write(f'Output files saved to {OutputRecord().output_dir}')
-    except KeyboardInterrupt:
-        OutputRecord().write(f"Aborting, cleaning up the directory {OutputRecord().output_dir}")
-        OutputRecord().cleanup_output_dir()
-    except FileNotFoundError as err:
-        OutputRecord().write('Failed to open file:' + str(err))
-    '''
+            if write_dir:
+                out = OutputRecord(output_dir)
+            else:
+                out = OutputRecord(None)
+            parse_eval_file = os.path.abspath(dump_path)
+            out.info(f"Restoring {os.path.basename(dump_path)}")
+
+        results_dict, x_values = parse_evaluation(executables_list, parse_eval_file)
+        meas_results = prepare_plotting_data(results_dict, len(executables_list))
+        make_plots(meas_results, x_values)
+
+
+    except BaseException as err:
+        out.info(str(err))
+    except KeyboardInterrupt as err:
+        out.info('Aborting...')
 
 if __name__=='__main__':
     main()
