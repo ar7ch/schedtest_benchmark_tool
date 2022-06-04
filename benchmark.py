@@ -364,6 +364,11 @@ def prepare_plotting_data(results: Dict, exec_num):
 
         sched_ratio.append(100*len(sched_runs) / len(runs))
 
+        def avg(list):
+            try:
+                return sum(list) / len(list)
+            except ZeroDivisionError:
+                return None
 
         for exec_i in range(exec_num):
             i_sched_rts = [run[exec_i][runtime] for run in sched_runs]
@@ -375,15 +380,15 @@ def prepare_plotting_data(results: Dict, exec_num):
             all_rts[exec_i].append(i_all_rts)
 
 
-            execs_avg_rt_sched[exec_i].append(sum(i_sched_rts) / len(i_sched_rts))
-            execs_avg_rt_unsched[exec_i].append(sum(i_unsched_rts) / len(i_unsched_rts))
+            execs_avg_rt_sched[exec_i].append(avg(i_sched_rts))
+            execs_avg_rt_unsched[exec_i].append(avg(i_unsched_rts))
             execs_avg_rt[exec_i].append((sum(i_unsched_rts) + sum(i_sched_rts)) / (len(i_unsched_rts + i_sched_rts)))
 
             i_sched_states = [run[exec_i][states] for run in sched_runs]
             i_unsched_states = [run[exec_i][states] for run in unsched_runs]
 
-            execs_avg_states_sched[exec_i].append(sum(i_sched_states) / len(i_sched_states))
-            execs_avg_states_unsched[exec_i].append(sum(i_unsched_states) / len(i_unsched_states))
+            execs_avg_states_sched[exec_i].append(avg(i_sched_states))
+            execs_avg_states_unsched[exec_i].append(avg(i_unsched_states))
             execs_avg_states[exec_i].append((sum(i_unsched_states) + sum(i_sched_states)) / (len(i_unsched_states + i_sched_states)))
 
     return execs_avg_rt_sched, execs_avg_rt_unsched, execs_avg_rt, execs_avg_states_sched, execs_avg_states_unsched,  execs_avg_states, sched_ratio, all_rts_sched, all_rts_unsched, all_rts
@@ -392,8 +397,8 @@ def prepare_plotting_data(results: Dict, exec_num):
 
 
 def plot_wrapper(x_values: list, y_values_list: list, fig_num: int, xlabel: str, ylabel: str, title: str, legend_labels: List[str], ylog=False, grid=True):
-    #COLORS = ['blue', 'green', 'red', 'orange', 'purple', 'brown', 'pink']
-    COLORS = ['black']
+    COLORS = ['blue', 'green', 'red', 'orange', 'purple', 'brown', 'pink']
+    #COLORS = ['black']
     plt.figure(fig_num)
     plt.grid(grid, alpha=0.5, linestyle=':')
     if title is None:
@@ -446,23 +451,16 @@ def make_plots(meas_results, x_values, open_plots=True):
     execs_avg_rt_sched, execs_avg_rt_unsched, execs_avg_rt, execs_avg_states_sched, execs_avg_states_unsched, execs_avg_states, sched_ratio, all_rt_sched, all_rt_unsched, all_rt = meas_results
 
     lines_legend = ['Bonifaci 2012', 'our modification']
+    lines_legend = ['BFS', 'DFS']
 
     log_y_axis = [True, True, True, False, False, False, False]
 
     grid = True
-    '''
+
+
     fig_num = 0
-    for fig_num, y_values in enumerate(meas_results[:-4]):
-        plot_wrapper(x_values, y_values, fig_num, config.legend[varying_param], ylabels[fig_num], None, lines_legend, ylog=log_y_axis[fig_num], grid=grid)
-        out.savefig(ylabels[fig_num].replace(' ', '_'))
-    # Sched ratio
-    fig_num += 1
-    plot_wrapper(x_values, [sched_ratio]*len(meas_results[0]), fig_num, config.legend[varying_param], ylabels[fig_num], None, lines_legend, grid=grid)
-    out.savefig(ylabels[fig_num].replace(' ', '_'))
-    plt.yticks(list(range(0, 110, 10)))
-    fig_num += 1
-    '''
-    fig_num = 0
+    #plot_wrapper(x_values, execs_avg_rt_sched + execs_avg_rt_unsched + execs_avg_rt, fig_num, config.legend[varying_param], 'Runtime, seconds', 'Runtime comparison', ['Bonifaci2012 (schedulable tasks)', 'our (schedulable tasks)', 'Bonifaci2012 (unschedulable tasks)', 'our (unschedulable tasks)', 'Bonifaci2012 (all tasks)', 'our (all tasks)'], ylog=True)
+    #fig_num += 1
     plot_wrapper(x_values, execs_avg_rt_sched, fig_num, config.legend[varying_param], ylabels[fig_num], None, lines_legend, ylog=True)
     out.savefig(ylabels[fig_num].replace(' ', '_'))
     fig_num += 1
@@ -533,8 +531,8 @@ def main():
         meas_results = prepare_plotting_data(results_dict, len(executables_list))
         make_plots(meas_results, x_values)
 
-    except BaseException as err:
-        print(str(err))
+    #except Exception as err:
+    #    print(str(err))
     except KeyboardInterrupt as err:
         print('Aborting...')
 

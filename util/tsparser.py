@@ -169,4 +169,3 @@ def read_and_evaluate(input_file_name: str, unit_action: Callable, action_args: 
                 cur_tasksys.taskset.append(task)
             assert len(cur_tasksys.taskset) == cur_tasksys.n
             unit_action(cur_tasksys, *action_args)  # evaluate
-            lineno += 1
