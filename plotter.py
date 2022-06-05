@@ -64,7 +64,7 @@ def parse_evaluation(executables_list: List[str], eval_filename: str):
 
 
 def prepare_plotting_data(results: Dict, exec_num):
-    from config import sched, runtime, states, unsched, total
+    from config import sched, runtime, states, unsched, total, queue
     execs_avg_rt = []
     execs_avg_rt_sched = []
     execs_avg_rt_unsched = []
@@ -72,6 +72,10 @@ def prepare_plotting_data(results: Dict, exec_num):
     execs_avg_states = []
     execs_avg_states_sched = []
     execs_avg_states_unsched = []
+
+    execs_queue = []
+    execs_queue_sched = []
+    execs_queue_unsched = []
 
     sched_ratio = []
 
@@ -87,6 +91,10 @@ def prepare_plotting_data(results: Dict, exec_num):
         execs_avg_states_sched.append([])
         execs_avg_states_unsched.append([])
         execs_avg_states.append([])
+
+        execs_queue_sched.append([])
+        execs_queue_unsched.append([])
+        execs_queue.append([])
 
         all_rts_sched.append([])
         all_rts_unsched.append([])
@@ -120,7 +128,6 @@ def prepare_plotting_data(results: Dict, exec_num):
             all_rts_unsched[exec_i].append(i_unsched_rts)
             all_rts[exec_i].append(i_all_rts)
 
-
             execs_avg_rt_sched[exec_i].append(avg(i_sched_rts))
             execs_avg_rt_unsched[exec_i].append(avg(i_unsched_rts))
             execs_avg_rt[exec_i].append((sum(i_unsched_rts) + sum(i_sched_rts)) / (len(i_unsched_rts + i_sched_rts)))
@@ -132,7 +139,15 @@ def prepare_plotting_data(results: Dict, exec_num):
             execs_avg_states_unsched[exec_i].append(avg(i_unsched_states))
             execs_avg_states[exec_i].append((sum(i_unsched_states) + sum(i_sched_states)) / (len(i_unsched_states + i_sched_states)))
 
-    return execs_avg_rt_sched, execs_avg_rt_unsched, execs_avg_rt, execs_avg_states_sched, execs_avg_states_unsched,  execs_avg_states, sched_ratio, all_rts_sched, all_rts_unsched, all_rts
+            i_sched_queue = [run[exec_i][queue] for run in sched_runs]
+            i_unsched_queue = [run[exec_i][queue] for run in unsched_runs]
+
+            execs_queue_sched[exec_i].append(avg(i_sched_queue))
+            execs_queue_unsched[exec_i].append(avg(i_unsched_queue))
+            execs_queue[exec_i].append((sum(i_unsched_queue) + sum(i_sched_queue)) / (len(i_unsched_queue + i_sched_queue)))
+
+
+    return execs_avg_rt_sched, execs_avg_rt_unsched, execs_avg_rt, execs_avg_states_sched, execs_avg_states_unsched,  execs_avg_states, sched_ratio, all_rts_sched, all_rts_unsched, all_rts, execs_queue_sched, execs_queue_unsched, execs_queue
 
 
 
@@ -151,7 +166,7 @@ def plot_wrapper(x_values: list, y_values_list: list, fig_num: int, xlabel: str,
         cont_color = COLORS[i % len(COLORS)]
         marker = ['o', 'x', '*', 'D', 'd', '>', '+',  's']
         if ylog:
-            plt.semilogy(x_values, y_values, marker=marker[i % len(marker)], label=legend_labels[i], color=cont_color, alpha=0.8)
+            plt.semilogy(x_values, y_values, marker=marker[i % len(marker)], label=legend_labels[i], color=cont_color, alpha=0.8, markersize=8)
         else:
             plt.plot(x_values, y_values, marker=marker[i % len(marker)], label=legend_labels[i], color=cont_color, alpha=0.7, markersize=10)
         plt.xticks(x_values)
@@ -182,11 +197,10 @@ def boxplot_wrapper(x_values: List, y_values_list: List[List], fig_num: int, xla
         plt.title(plot_title)
         plt.boxplot(y_i, sym='+')
         plt.xticks([i for i in range(1, len(x_values) + 1)], x_values)
-        plt.savefig(plot_title.replace(' ', '_').replace('\n', ''))
+        make_plots.savefig(plot_title.replace(' ', '_').replace('\n', ''))
         #plt.xlim(min(x_values), max(x_values))
 
 def make_plots(meas_results, x_values, output_dir, labels, extension='.pdf'):
-
     def savefig(filename, output_dir=output_dir, out_format=extension):
         fig_path = os.path.join(output_dir, filename + out_format)
         print(f'Saving plot as {fig_path}')
@@ -194,8 +208,8 @@ def make_plots(meas_results, x_values, output_dir, labels, extension='.pdf'):
 
     grid = True
     ylabels = ['Runtime, seconds', 'Avg. runtime of schedulable tasksets', 'Avg. runtime among unschedulable tasksets', 'Avg. runtime among all tasksets', 'Number of states', 'Avg. number of states among schedulable taksets',
-               'Avg. number of states among unschedulable tasksets', 'Avg. number of states among all tasksets', 'Schedulability ratio']
-    execs_avg_rt_sched, execs_avg_rt_unsched, execs_avg_rt, execs_avg_states_sched, execs_avg_states_unsched, execs_avg_states, sched_ratio, all_rt_sched, all_rt_unsched, all_rt = meas_results
+               'Avg. number of states among unschedulable tasksets', 'Avg. number of states among all tasksets', 'Schedulability ratio', 'Maximum queue size, elements']
+    execs_avg_rt_sched, execs_avg_rt_unsched, execs_avg_rt, execs_avg_states_sched, execs_avg_states_unsched, execs_avg_states, sched_ratio, all_rt_sched, all_rt_unsched, all_rt, queue_sched, queue_unsched, queue = meas_results
 
 
     all_labels = []
@@ -242,6 +256,11 @@ def make_plots(meas_results, x_values, output_dir, labels, extension='.pdf'):
     savefig(ylabels[fig_num].replace(' ', '_'))
     plt.yticks(list(range(0, 110, 10)))
     fig_num += 1
+
+    plot_wrapper(x_values, queue_sched + queue_unsched + queue, fig_num, config.legend[varying_param], ylabels[fig_num], 'Maximum queue size comparison', all_labels, ylog=True)
+    savefig('overall_queue')
+    fig_num += 1
+
     # Boxplots
     boxplot_wrapper(x_values, all_rt_sched, fig_num, config.legend[varying_param], None, '\namong schedulable tasksets', labels, grid)
     fig_num += len(all_rt)-1 # creates >= 1 figures
@@ -251,6 +270,7 @@ def make_plots(meas_results, x_values, output_dir, labels, extension='.pdf'):
 
     boxplot_wrapper(x_values, all_rt, fig_num, config.legend[varying_param], None, '\namong all tasksets', labels, grid)
     fig_num += len(all_rt)-1
+
 
     plt.show(block=False)
     input('Press enter to exit')

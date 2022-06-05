@@ -25,7 +25,7 @@ class OutputRecordSingleton(type):
 @dataclass
 class OutputRecord(metaclass=OutputRecordSingleton):
     output_dir: str = field(default=None)
-    out_fnames = ["evaluation_xls.txt", "evaluation_plotter.txt"]
+    out_fnames = ["evaluation_xls.txt", "evaluation_plotter_q.txt"]
 
     def __init__(self, output_dir=None):
         self.out_fds = []
