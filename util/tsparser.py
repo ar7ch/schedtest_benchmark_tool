@@ -40,7 +40,7 @@ def read_and_evaluate(input_file_name: str, unit_action: Callable, action_args: 
     :return:
     """
     fname = os.path.abspath(input_file_name)
-    total_lines = sum(1 for line in open(fname))
+    total_lines = sum(1 if line[0] != '#' else 0 for line in open(fname))
     lineno = 0
     with open(fname, 'r') as inp_file:
         while True:
