@@ -174,7 +174,7 @@ def plot_wrapper(x_values: list, y_values_list: list, fig_num: int, xlabel: str,
     plt.legend()
 
 
-def boxplot_wrapper(x_values: List, y_values_list: List[List], fig_num: int, xlabel: str, ylabel: str, title: str, legend_labels: List[str], grid=True):
+def boxplot_wrapper(x_values: List, y_values_list: List[List], fig_num: int, xlabel: str, ylabel: str, title: str, legend_labels: List[str], grid=True, output_dir='', out_format='.pdf'):
     # if the values sequence is descending instead of ascending, reverse it for correct boxplot
     if len(x_values) > 1 and x_values[0] > x_values[1]:
         x_values = x_values[::-1]
@@ -197,14 +197,15 @@ def boxplot_wrapper(x_values: List, y_values_list: List[List], fig_num: int, xla
         plt.title(plot_title)
         plt.boxplot(y_i, sym='+')
         plt.xticks([i for i in range(1, len(x_values) + 1)], x_values)
-        make_plots.savefig(plot_title.replace(' ', '_').replace('\n', ''))
-        #plt.xlim(min(x_values), max(x_values))
+        fig_path = os.path.join(output_dir, plot_title.replace(' ', '_').replace('\n', '') + out_format)
+        plt.savefig(fig_path)
+        print(f'Saving plot as {fig_path}')
 
 def make_plots(meas_results, x_values, output_dir, labels, extension='.pdf'):
     def savefig(filename, output_dir=output_dir, out_format=extension):
         fig_path = os.path.join(output_dir, filename + out_format)
-        print(f'Saving plot as {fig_path}')
         plt.savefig(fig_path)
+        print(f'Saving plot as {fig_path}')
 
     grid = True
     ylabels = ['Runtime, seconds', 'Avg. runtime of schedulable tasksets', 'Avg. runtime among unschedulable tasksets', 'Avg. runtime among all tasksets', 'Number of states', 'Avg. number of states among schedulable taksets',
@@ -262,13 +263,13 @@ def make_plots(meas_results, x_values, output_dir, labels, extension='.pdf'):
     fig_num += 1
 
     # Boxplots
-    boxplot_wrapper(x_values, all_rt_sched, fig_num, config.legend[varying_param], None, '\namong schedulable tasksets', labels, grid)
+    boxplot_wrapper(x_values, all_rt_sched, fig_num, config.legend[varying_param], None, '\namong schedulable tasksets', labels, grid, output_dir=output_dir)
     fig_num += len(all_rt)-1 # creates >= 1 figures
 
-    boxplot_wrapper(x_values, all_rt_unsched, fig_num, config.legend[varying_param], None, '\namong unschedulable tasksets', labels, grid)
+    boxplot_wrapper(x_values, all_rt_unsched, fig_num, config.legend[varying_param], None, '\namong unschedulable tasksets', labels, grid, output_dir=output_dir)
     fig_num += len(all_rt)-1
 
-    boxplot_wrapper(x_values, all_rt, fig_num, config.legend[varying_param], None, '\namong all tasksets', labels, grid)
+    boxplot_wrapper(x_values, all_rt, fig_num, config.legend[varying_param], None, '\namong all tasksets', labels, grid, output_dir=output_dir)
     fig_num += len(all_rt)-1
 
 
