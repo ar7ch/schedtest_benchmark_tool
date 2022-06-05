@@ -73,9 +73,9 @@ def prepare_plotting_data(results: Dict, exec_num):
     execs_avg_states_sched = []
     execs_avg_states_unsched = []
 
-    execs_queue = []
-    execs_queue_sched = []
-    execs_queue_unsched = []
+    execs_peak_queue_map = []
+    execs_peak_queue_map_sched = []
+    execs_peak_queue_map_unsched = []
 
     sched_ratio = []
 
@@ -92,9 +92,9 @@ def prepare_plotting_data(results: Dict, exec_num):
         execs_avg_states_unsched.append([])
         execs_avg_states.append([])
 
-        execs_queue_sched.append([])
-        execs_queue_unsched.append([])
-        execs_queue.append([])
+        execs_peak_queue_map_sched.append([])
+        execs_peak_queue_map_unsched.append([])
+        execs_peak_queue_map.append([])
 
         all_rts_sched.append([])
         all_rts_unsched.append([])
@@ -139,15 +139,15 @@ def prepare_plotting_data(results: Dict, exec_num):
             execs_avg_states_unsched[exec_i].append(avg(i_unsched_states))
             execs_avg_states[exec_i].append((sum(i_unsched_states) + sum(i_sched_states)) / (len(i_unsched_states + i_sched_states)))
 
-            i_sched_queue = [run[exec_i][queue] for run in sched_runs]
-            i_unsched_queue = [run[exec_i][queue] for run in unsched_runs]
+            i_sched_queue_map = [run[exec_i][queue] for run in sched_runs]
+            i_unsched_queue_map = [run[exec_i][queue] for run in unsched_runs]
 
-            execs_queue_sched[exec_i].append(avg(i_sched_queue))
-            execs_queue_unsched[exec_i].append(avg(i_unsched_queue))
-            execs_queue[exec_i].append((sum(i_unsched_queue) + sum(i_sched_queue)) / (len(i_unsched_queue + i_sched_queue)))
+            execs_peak_queue_map_sched[exec_i].append(avg(i_sched_queue_map))
+            execs_peak_queue_map_unsched[exec_i].append(avg(i_unsched_queue_map))
+            execs_peak_queue_map[exec_i].append((sum(i_unsched_queue_map) + sum(i_sched_queue_map)) / (len(i_unsched_queue_map + i_sched_queue_map)))
 
 
-    return execs_avg_rt_sched, execs_avg_rt_unsched, execs_avg_rt, execs_avg_states_sched, execs_avg_states_unsched,  execs_avg_states, sched_ratio, all_rts_sched, all_rts_unsched, all_rts, execs_queue_sched, execs_queue_unsched, execs_queue
+    return execs_avg_rt_sched, execs_avg_rt_unsched, execs_avg_rt, execs_avg_states_sched, execs_avg_states_unsched, execs_avg_states, sched_ratio, all_rts_sched, all_rts_unsched, all_rts, execs_peak_queue_map_sched, execs_peak_queue_map_unsched, execs_peak_queue_map
 
 
 
@@ -158,7 +158,7 @@ def plot_wrapper(x_values: list, y_values_list: list, fig_num: int, xlabel: str,
     plt.figure(fig_num)
     plt.grid(grid, alpha=0.5, linestyle=':')
     if title is None:
-        title = ylabel
+        title = ""
     plt.title(title)
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
@@ -201,17 +201,25 @@ def boxplot_wrapper(x_values: List, y_values_list: List[List], fig_num: int, xla
         plt.savefig(fig_path)
         print(f'Saving plot as {fig_path}')
 
-def make_plots(meas_results, x_values, output_dir, labels, extension='.pdf'):
+def make_plots(meas_results, x_values, output_dir, labels, show_titles=True, extension='.pdf'):
     def savefig(filename, output_dir=output_dir, out_format=extension):
         fig_path = os.path.join(output_dir, filename + out_format)
-        plt.savefig(fig_path)
+        plt.savefig(fig_path, bbox_inches='tight')
         print(f'Saving plot as {fig_path}')
 
     grid = True
     ylabels = ['Runtime, seconds', 'Avg. runtime of schedulable tasksets', 'Avg. runtime among unschedulable tasksets', 'Avg. runtime among all tasksets', 'Number of states', 'Avg. number of states among schedulable taksets',
-               'Avg. number of states among unschedulable tasksets', 'Avg. number of states among all tasksets', 'Schedulability ratio', 'Maximum queue size, elements']
-    execs_avg_rt_sched, execs_avg_rt_unsched, execs_avg_rt, execs_avg_states_sched, execs_avg_states_unsched, execs_avg_states, sched_ratio, all_rt_sched, all_rt_unsched, all_rt, queue_sched, queue_unsched, queue = meas_results
+               'Avg. number of states among unschedulable tasksets', 'Avg. number of states among all tasksets', 'Schedulability ratio', 'Peak total size of queue and visited map, elements']
+    execs_avg_rt_sched, execs_avg_rt_unsched, execs_avg_rt, execs_avg_states_sched, execs_avg_states_unsched, \
+        execs_avg_states, sched_ratio, all_rt_sched, all_rt_unsched, all_rt, queue_sched, queue_unsched, queue = meas_results
 
+    if show_titles:
+        titles = ['Runtime comparison', 'Avg. runtime of schedulable tasksets', 'Avg. runtime among unschedulable tasksets',
+         'Avg. runtime among all tasksets', 'Number of states', 'Avg. number of states among schedulable taksets',
+         'Avg. number of states among unschedulable tasksets', 'Avg. number of states among all tasksets',
+         'Schedulability ratio', 'Peak queue+map size comparison']
+    else:
+        titles = [None]*len(ylabels)
 
     all_labels = []
     postfixes = ['(schedulable tasksets)', '(unschedulable tasksets)', '(all tasksets)']
@@ -220,46 +228,46 @@ def make_plots(meas_results, x_values, output_dir, labels, extension='.pdf'):
             all_labels.append(label + ' ' + postfix)
 
     fig_num = 0
-    plot_wrapper(x_values, execs_avg_rt_sched + execs_avg_rt_unsched + execs_avg_rt, fig_num, config.legend[varying_param], ylabels[fig_num], 'Runtime comparison', all_labels, ylog=True)
+    plot_wrapper(x_values, execs_avg_rt_sched + execs_avg_rt_unsched + execs_avg_rt, fig_num, config.legend[varying_param], ylabels[fig_num], titles[fig_num], all_labels, ylog=True)
     savefig('overall_runtime')
     fig_num += 1
 
-    plot_wrapper(x_values, execs_avg_rt_sched, fig_num, config.legend[varying_param], ylabels[fig_num], None, labels, ylog=True)
+    plot_wrapper(x_values, execs_avg_rt_sched, fig_num, config.legend[varying_param], ylabels[fig_num], titles[fig_num], labels, ylog=True)
     savefig(ylabels[fig_num].replace(' ', '_'))
     fig_num += 1
 
-    plot_wrapper(x_values, execs_avg_rt_unsched, fig_num, config.legend[varying_param], ylabels[fig_num], None, labels, ylog=True)
+    plot_wrapper(x_values, execs_avg_rt_unsched, fig_num, config.legend[varying_param], ylabels[fig_num], titles[fig_num], labels, ylog=True)
     savefig(ylabels[fig_num].replace(' ', '_'))
     fig_num += 1
 
-    plot_wrapper(x_values, execs_avg_rt, fig_num, config.legend[varying_param], ylabels[fig_num], None, labels, ylog=True)
+    plot_wrapper(x_values, execs_avg_rt, fig_num, config.legend[varying_param], ylabels[fig_num], titles[fig_num], labels, ylog=True)
     savefig(ylabels[fig_num].replace(' ', '_'))
     fig_num += 1
 
-    plot_wrapper(x_values, execs_avg_states_sched + execs_avg_states_unsched + execs_avg_states, fig_num, config.legend[varying_param], ylabels[fig_num], 'States comparison', all_labels, ylog=True)
+    plot_wrapper(x_values, execs_avg_states_sched + execs_avg_states_unsched + execs_avg_states, fig_num, config.legend[varying_param], ylabels[fig_num], titles[fig_num], all_labels, ylog=True)
     savefig('overall_states')
     fig_num += 1
 
-    plot_wrapper(x_values, execs_avg_states_sched, fig_num, config.legend[varying_param], ylabels[fig_num], None, labels)
+    plot_wrapper(x_values, execs_avg_states_sched, fig_num, config.legend[varying_param], ylabels[fig_num], titles[fig_num], labels)
     savefig(ylabels[fig_num].replace(' ', '_'))
     fig_num += 1
 
-    plot_wrapper(x_values, execs_avg_states_unsched, fig_num, config.legend[varying_param], ylabels[fig_num], None, labels)
+    plot_wrapper(x_values, execs_avg_states_unsched, fig_num, config.legend[varying_param], ylabels[fig_num], titles[fig_num], labels)
     savefig(ylabels[fig_num].replace(' ', '_'))
     fig_num += 1
 
-    plot_wrapper(x_values, execs_avg_states, fig_num, config.legend[varying_param], ylabels[fig_num], None, labels)
+    plot_wrapper(x_values, execs_avg_states, fig_num, config.legend[varying_param], ylabels[fig_num], titles[fig_num], labels)
     savefig(ylabels[fig_num].replace(' ', '_'))
     fig_num += 1
 
     # Schedulability ratio
-    plot_wrapper(x_values, [sched_ratio, sched_ratio], fig_num, config.legend[varying_param], ylabels[fig_num], None, labels)
+    plot_wrapper(x_values, [sched_ratio, sched_ratio], fig_num, config.legend[varying_param], ylabels[fig_num], titles[fig_num], labels)
     savefig(ylabels[fig_num].replace(' ', '_'))
     plt.yticks(list(range(0, 110, 10)))
     fig_num += 1
 
-    plot_wrapper(x_values, queue_sched + queue_unsched + queue, fig_num, config.legend[varying_param], ylabels[fig_num], 'Maximum queue size comparison', all_labels, ylog=True)
-    savefig('overall_queue')
+    plot_wrapper(x_values, queue_sched + queue_unsched + queue, fig_num, config.legend[varying_param], ylabels[fig_num], titles[fig_num], all_labels, ylog=True)
+    savefig('overall_queue_map')
     fig_num += 1
 
     # Boxplots
@@ -283,18 +291,22 @@ def parse():
     parser.add_argument("executables_labels",
                         help="comma-separated list with labels of corresponding executables (that will appear on plots)")
     parser.add_argument("-o", "--output-dir", help="specify custom name for the output directory", type=str)
+    parser.add_argument("-n", "--no-titles", help="Don't show titles on plots", action="store_true")
     args = parser.parse_args()
     if not args.output_dir:
         args.output_dir = ''
-    return os.path.abspath(args.input_file), args.executables_labels.split(','), os.path.abspath(args.output_dir)
+    titles = True
+    if args.no_titles:
+        titles = False
+    return os.path.abspath(args.input_file), args.executables_labels.split(','), os.path.abspath(args.output_dir), titles
 
 
 def main():
-    filename, executables_labels, output_dir = parse()
+    filename, executables_labels, output_dir, show_titles = parse()
     print(f"Plotting {filename}")
     results_dict, x_values = parse_evaluation(executables_labels, filename)
     meas_results = prepare_plotting_data(results_dict, len(executables_labels))
-    make_plots(meas_results, x_values, output_dir, executables_labels)
+    make_plots(meas_results, x_values, output_dir, executables_labels, show_titles=show_titles)
 
 if __name__=='__main__':
     main()
