@@ -32,10 +32,10 @@ class CompletedRunWithQueue(CompletedRun):
         return super().as_tuple() + (self.queue_map_states,)
 
 
-rexp_rt = re.compile(r'Elapsed time: (\d*(\.\d*)*(e(\+|\-)?\d*)*).', flags=re.MULTILINE)
-rexp_states = re.compile(r'(\d*) states generated.')
+rexp_rt = re.compile(r'Elapsed time: (\d*(\.\d*)*(e(\+|\-)?\d*)*) seconds', flags=re.MULTILINE)
+rexp_states = re.compile(r'(\d*) states generated\.')
 #rexp_queue_states = re.compile(r'Max(imum)? queue size: (\d*).')
-rexp_queue_map_states = re.compile(r'Max(imum)? queue\+map size: (\d*).')
+rexp_queue_map_states = re.compile(r'Max(imum)? queue\+map size: (\d*)')
 
 
 def profile(exec_name: str, stdin: str, trials=3, input_from_file=True) -> CompletedRun:
