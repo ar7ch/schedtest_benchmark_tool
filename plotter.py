@@ -83,6 +83,10 @@ def prepare_plotting_data(results: Dict, exec_num):
     all_rts_unsched = []
     all_rts = []
 
+    all_queue_map_sched = []
+    all_queue_map_unsched = []
+    all_queue_map = []
+
     for i in range(exec_num):
         execs_avg_rt_sched.append([])
         execs_avg_rt_unsched.append([])
@@ -99,6 +103,10 @@ def prepare_plotting_data(results: Dict, exec_num):
         all_rts_sched.append([])
         all_rts_unsched.append([])
         all_rts.append([])
+
+        all_queue_map_sched.append([])
+        all_queue_map_unsched.append([])
+        all_queue_map.append([])
 
     #execs_avg_states = []
     for tasksys_tuple, runs in results.items(): # for every tick of varying N
@@ -124,6 +132,7 @@ def prepare_plotting_data(results: Dict, exec_num):
             i_unsched_rts = [run[exec_i][runtime] for run in unsched_runs]
             i_all_rts = [run[exec_i][runtime] for run in runs]
 
+
             all_rts_sched[exec_i].append(i_sched_rts)
             all_rts_unsched[exec_i].append(i_unsched_rts)
             all_rts[exec_i].append(i_all_rts)
@@ -142,12 +151,18 @@ def prepare_plotting_data(results: Dict, exec_num):
             i_sched_queue_map = [run[exec_i][queue] for run in sched_runs]
             i_unsched_queue_map = [run[exec_i][queue] for run in unsched_runs]
 
+            i_all_queue_map = [run[exec_i][queue] for run in runs]
+
+            all_queue_map_sched[exec_i].append(i_sched_queue_map)
+            all_queue_map_unsched[exec_i].append(i_unsched_queue_map)
+            all_queue_map[exec_i].append(i_all_queue_map)
+
             execs_peak_queue_map_sched[exec_i].append(avg(i_sched_queue_map))
             execs_peak_queue_map_unsched[exec_i].append(avg(i_unsched_queue_map))
             execs_peak_queue_map[exec_i].append((sum(i_unsched_queue_map) + sum(i_sched_queue_map)) / (len(i_unsched_queue_map + i_sched_queue_map)))
 
 
-    return execs_avg_rt_sched, execs_avg_rt_unsched, execs_avg_rt, execs_avg_states_sched, execs_avg_states_unsched, execs_avg_states, sched_ratio, all_rts_sched, all_rts_unsched, all_rts, execs_peak_queue_map_sched, execs_peak_queue_map_unsched, execs_peak_queue_map
+    return execs_avg_rt_sched, execs_avg_rt_unsched, execs_avg_rt, execs_avg_states_sched, execs_avg_states_unsched, execs_avg_states, sched_ratio, all_rts_sched, all_rts_unsched, all_rts, execs_peak_queue_map_sched, execs_peak_queue_map_unsched, execs_peak_queue_map, all_queue_map_sched, all_queue_map_unsched, all_queue_map
 
 
 
@@ -155,7 +170,7 @@ def prepare_plotting_data(results: Dict, exec_num):
 def plot_wrapper(x_values: list, y_values_list: list, fig_num: int, xlabel: str, ylabel: str, title: str, legend_labels: List[str], ylog=False, grid=True):
     COLORS = ['blue', 'green', 'red', 'orange', 'purple', 'brown', 'pink']
     #COLORS = ['black']
-    plt.figure(fig_num)
+    plt.figure(fig_num, figsize=config.figsize)
     plt.grid(grid, alpha=0.5, linestyle=':')
     if title is None:
         title = ""
@@ -171,34 +186,33 @@ def plot_wrapper(x_values: list, y_values_list: list, fig_num: int, xlabel: str,
             plt.plot(x_values, y_values, marker=marker[i % len(marker)], label=legend_labels[i], color=cont_color, alpha=0.7, markersize=10)
         plt.xticks(x_values)
         #plt.xlim(min(x_values), max(x_values))
-    plt.legend()
+    plt.legend(loc='lower left')
 
 
-def boxplot_wrapper(x_values: List, y_values_list: List[List], fig_num: int, xlabel: str, ylabel: str, title: str, legend_labels: List[str], grid=True, output_dir='', out_format='.pdf'):
+def boxplot_wrapper(x_values: List, y_values_list: List[List], fig_num: int, xlabel: str, ylabel: str, title: str, legend_labels: List[str], grid=True, output_dir='', out_format='.pdf', show_title=True, quantity='Runtime'):
     # if the values sequence is descending instead of ascending, reverse it for correct boxplot
     if len(x_values) > 1 and x_values[0] > x_values[1]:
         x_values = x_values[::-1]
         y_values_list = [y_value[::-1] for y_value in y_values_list]
 
-    if title is None:
-        title = ''
     y_cmp = y_values_list[-1]
     for i, y_i in enumerate(y_values_list[:-1]):
-        plt.figure(fig_num+i)
+        plt.figure(fig_num+i, figsize=config.figsize)
         plt.xlabel(xlabel)
         if ylabel is None:
-            ylabel = 'Runtime reduction, times'
+            ylabel = 'Reduction, times'
         plt.ylabel(ylabel)
         plt.grid(grid, alpha=0.5, linestyle=':')
         for num, _ in enumerate(y_i):
             for k, _ in enumerate(y_i[num]):
                 y_i[num][k] /= y_cmp[num][k]
-        plot_title = f'Runtime reduction of {legend_labels[-1]} compared to {legend_labels[i]}' + title
-        plt.title(plot_title)
+        plot_title = f'{quantity} reduction of {legend_labels[-1]} compared to {legend_labels[i]}' + title
+        if show_title:
+            plt.title(plot_title)
         plt.boxplot(y_i, sym='+')
         plt.xticks([i for i in range(1, len(x_values) + 1)], x_values)
         fig_path = os.path.join(output_dir, plot_title.replace(' ', '_').replace('\n', '') + out_format)
-        plt.savefig(fig_path)
+        plt.savefig(fig_path, bbox_inches='tight')
         print(f'Saving plot as {fig_path}')
 
 def make_plots(meas_results, x_values, output_dir, labels, show_titles=True, extension='.pdf'):
@@ -209,9 +223,9 @@ def make_plots(meas_results, x_values, output_dir, labels, show_titles=True, ext
 
     grid = True
     ylabels = ['Runtime, seconds', 'Avg. runtime of schedulable tasksets', 'Avg. runtime among unschedulable tasksets', 'Avg. runtime among all tasksets', 'Number of states', 'Avg. number of states among schedulable taksets',
-               'Avg. number of states among unschedulable tasksets', 'Avg. number of states among all tasksets', 'Schedulability ratio', 'Peak total size of queue and visited map, elements']
+               'Avg. number of states among unschedulable tasksets', 'Avg. number of states among all tasksets', 'Schedulability ratio', 'Avg. peak size of queue and visited map, elements']
     execs_avg_rt_sched, execs_avg_rt_unsched, execs_avg_rt, execs_avg_states_sched, execs_avg_states_unsched, \
-        execs_avg_states, sched_ratio, all_rt_sched, all_rt_unsched, all_rt, queue_sched, queue_unsched, queue = meas_results
+        execs_avg_states, sched_ratio, all_rt_sched, all_rt_unsched, all_rt, queue_sched, queue_unsched, queue, all_queue_map_sched, all_queue_map_unsched, all_queue_map = meas_results
 
     if show_titles:
         titles = ['Runtime comparison', 'Avg. runtime of schedulable tasksets', 'Avg. runtime among unschedulable tasksets',
@@ -271,15 +285,37 @@ def make_plots(meas_results, x_values, output_dir, labels, show_titles=True, ext
     fig_num += 1
 
     # Boxplots
-    boxplot_wrapper(x_values, all_rt_sched, fig_num, config.legend[varying_param], None, '\namong schedulable tasksets', labels, grid, output_dir=output_dir)
+    boxplots_num = 3
+    i = 0
+    quantities = ['Runtime']*3 + ['States number']*3
+    boxplot_titles = ['\namong schedulable tasksets', '\namong unschedulable tasksets', '\namong all tasksets']*2
+    boxplot_ylabels = ['Runtime reduction, times']*3 + ['Peak number of saved states reduction, times']*3
+
+    # Runtimes
+    boxplot_wrapper(x_values, all_rt_sched, fig_num, config.legend[varying_param], boxplot_ylabels[i], boxplot_titles[i], labels, grid, output_dir=output_dir, show_title=show_titles, quantity=quantities[i])
     fig_num += len(all_rt)-1 # creates >= 1 figures
+    i += 1
 
-    boxplot_wrapper(x_values, all_rt_unsched, fig_num, config.legend[varying_param], None, '\namong unschedulable tasksets', labels, grid, output_dir=output_dir)
+    boxplot_wrapper(x_values, all_rt_unsched, fig_num, config.legend[varying_param], boxplot_ylabels[i], boxplot_titles[i], labels, grid, output_dir=output_dir, show_title=show_titles, quantity=quantities[i])
     fig_num += len(all_rt)-1
+    i += 1
 
-    boxplot_wrapper(x_values, all_rt, fig_num, config.legend[varying_param], None, '\namong all tasksets', labels, grid, output_dir=output_dir)
+    boxplot_wrapper(x_values, all_rt, fig_num, config.legend[varying_param], boxplot_ylabels[i], boxplot_titles[i], labels, grid, output_dir=output_dir, show_title=show_titles, quantity=quantities[i])
     fig_num += len(all_rt)-1
+    i += 1
 
+    # Number of states queue+map
+    boxplot_wrapper(x_values, all_queue_map_sched, fig_num, config.legend[varying_param], boxplot_ylabels[i], boxplot_titles[i], labels, grid, output_dir=output_dir, show_title=show_titles, quantity=quantities[i])
+    fig_num += len(all_queue_map)-1  # creates >= 1 figures
+    i += 1
+
+    boxplot_wrapper(x_values, all_queue_map_unsched, fig_num, config.legend[varying_param], boxplot_ylabels[i], boxplot_titles[i], labels, grid, output_dir=output_dir, show_title=show_titles, quantity=quantities[i])
+    fig_num += len(all_queue_map)-1
+    i += 1
+
+    boxplot_wrapper(x_values, all_queue_map, fig_num, config.legend[varying_param], boxplot_ylabels[i], boxplot_titles[i], labels, grid, output_dir=output_dir, show_title=show_titles, quantity=quantities[i])
+    fig_num += len(all_queue_map)-1
+    i += 1
 
     plt.show(block=False)
     input('Press enter to exit')

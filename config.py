@@ -20,3 +20,5 @@ queue = 3
 
 unsched = 1
 total = 2
+
+figsize=(8,6)
