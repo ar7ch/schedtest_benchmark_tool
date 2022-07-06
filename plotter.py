@@ -186,7 +186,7 @@ def plot_wrapper(x_values: list, y_values_list: list, fig_num: int, xlabel: str,
             plt.plot(x_values, y_values, marker=marker[i % len(marker)], label=legend_labels[i], color=cont_color, alpha=0.7, markersize=10)
         plt.xticks(x_values)
         #plt.xlim(min(x_values), max(x_values))
-    plt.legend(loc='lower left')
+    plt.legend(loc='lower right')
 
 
 def boxplot_wrapper(x_values: List, y_values_list: List[List], fig_num: int, xlabel: str, ylabel: str, title: str, legend_labels: List[str], grid=True, output_dir='', out_format='.pdf', show_title=True, quantity='Runtime'):
@@ -243,6 +243,7 @@ def make_plots(meas_results, x_values, output_dir, labels, show_titles=True, ext
 
     fig_num = 0
     plot_wrapper(x_values, execs_avg_rt_sched + execs_avg_rt_unsched + execs_avg_rt, fig_num, config.legend[varying_param], ylabels[fig_num], titles[fig_num], all_labels, ylog=True)
+    plt.ylim((1e-3, 100))
     savefig('overall_runtime')
     fig_num += 1
 
@@ -278,18 +279,20 @@ def make_plots(meas_results, x_values, output_dir, labels, show_titles=True, ext
     plot_wrapper(x_values, [sched_ratio, sched_ratio], fig_num, config.legend[varying_param], ylabels[fig_num], titles[fig_num], labels)
     savefig(ylabels[fig_num].replace(' ', '_'))
     plt.yticks(list(range(0, 110, 10)))
+    plt.ylim((0,100))
     fig_num += 1
 
     plot_wrapper(x_values, queue_sched + queue_unsched + queue, fig_num, config.legend[varying_param], ylabels[fig_num], titles[fig_num], all_labels, ylog=True)
+    plt.ylim((1e3, 1e8))
     savefig('overall_queue_map')
     fig_num += 1
 
     # Boxplots
     boxplots_num = 3
     i = 0
-    quantities = ['Runtime']*3 + ['States number']*3
+    quantities = ['Runtime']*3 + ['Peak saved states number']*3
     boxplot_titles = ['\namong schedulable tasksets', '\namong unschedulable tasksets', '\namong all tasksets']*2
-    boxplot_ylabels = ['Runtime reduction, times']*3 + ['Peak number of saved states reduction, times']*3
+    boxplot_ylabels = ['Runtime ratio, times'] + ['Runtime reduction, times']*2 + ['Peak number of saved states reduction, times']*3
 
     # Runtimes
     boxplot_wrapper(x_values, all_rt_sched, fig_num, config.legend[varying_param], boxplot_ylabels[i], boxplot_titles[i], labels, grid, output_dir=output_dir, show_title=show_titles, quantity=quantities[i])
